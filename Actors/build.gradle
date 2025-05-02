@@ -1,0 +1,35 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group 'at.fhv.lab2'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven {
+        url "https://repo.akka.io/maven"
+    }
+}
+
+dependencies {
+    implementation 'com.typesafe.akka:akka-actor_3:2.10.2'
+    implementation 'com.typesafe.akka:akka-actor-typed_3:2.10.2'
+    implementation 'com.typesafe.akka:akka-actor-testkit-typed_3:2.10.2'
+    implementation 'ch.qos.logback:logback-classic:1.5.18'
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.2'
+}
+
+application {
+    mainClass = 'at.fhv.sysarch.lab2.HomeAutomationSystem'
+}
+
+run {
+    standardInput = System.in
+}
+
+test {
+    useJUnitPlatform()
+}
