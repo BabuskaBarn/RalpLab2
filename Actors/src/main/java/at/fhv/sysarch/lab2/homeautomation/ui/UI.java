@@ -8,6 +8,7 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.AirCondition;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
 import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 
 import java.util.Scanner;
@@ -17,16 +18,21 @@ public class UI extends AbstractBehavior<Void> {
     private final ActorRef<TemperatureSensor.TemperatureCommand> tempSensor;
     private final ActorRef<AirCondition.AirConditionCommand> airCondition;
 
-    public static Behavior<Void> create(ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition) {
-        return Behaviors.setup(context -> new UI(context, tempSensor, airCondition));
+
+    private final ActorRef<Fridge.FridgeCommand> fridge;
+    private final ActorRef<OrderProcessor.OrderProcessor.Command>;
+
+    public static Behavior<Void> create(ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition, ActorRef<Fridge.FridgeCommand> fridge) {
+        return Behaviors.setup(context -> new UI(context, tempSensor, airCondition, fridge  ));
     }
 
-    private  UI(ActorContext<Void> context, ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition) {
+    private  UI(ActorContext<Void> context, ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition, ActorRef<Fridge.FridgeCommand> fridge) {
         super(context);
         // TODO: implement actor and behavior as needed
         // TODO: move UI initialization to appropriate place
         this.airCondition = airCondition;
         this.tempSensor = tempSensor;
+        this.fridge = fridge;
         new Thread(this::runCommandLine).start();
 
         getContext().getLog().info("UI started");

@@ -8,6 +8,8 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.AirCondition;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
+import at.fhv.sysarch.lab2.homeautomation.devices.OrderProcessor;
 import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
 
@@ -23,8 +25,15 @@ public class HomeAutomationController extends AbstractBehavior<Void>{
         super(context);
         // TODO: consider guardians and hierarchies. Who should create and communicate with which Actors?
         ActorRef<AirCondition.AirConditionCommand> airCondition = getContext().spawn(AirCondition.create(UUID.randomUUID().toString()), "AirCondition");
+
         ActorRef<TemperatureSensor.TemperatureCommand> tempSensor = getContext().spawn(TemperatureSensor.create(airCondition), "temperatureSensor");
-        ActorRef<Void> ui = getContext().spawn(UI.create(tempSensor, airCondition), "UI");
+
+        ActorRef<OrderProcessor.OrderCommand> orderProcessor = getContext().spawn(OrderProcessor.create(), "orderProcessor");
+
+        // Pass maxWeight (50kg) and maxCapacity (100 items) to Fridge
+        ActorRef<Fridge.FridgeCommand> fridge = getContext().spawn(Fridge.create(50f, 100, orderProcessor), "fridge");
+
+        ActorRef<Void> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge), "UI");
         getContext().getLog().info("HomeAutomation Application started");
     }
 
