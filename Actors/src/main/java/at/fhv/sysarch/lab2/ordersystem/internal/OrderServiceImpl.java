@@ -9,12 +9,12 @@ public class OrderServiceImpl {
 
 
 
-        public static Behavior<OrderProcessor.Command> create() {
-            return Behaviors.setup(context -> new AbstractBehavior<OrderProcessor.Command>(context) {
+        public static Behavior<OrderProcessor.OrderCommand> create() {
+            return Behaviors.setup(context -> new AbstractBehavior<OrderProcessor.OrderCommand>(context) {
                 private boolean isActive = true;
 
                 @Override
-                public Receive<OrderProcessor.Command> createReceive() {
+                public Receive<OrderProcessor.OrderCommand> createReceive() {
                     return newReceiveBuilder()
                             .onMessage(OrderProcessor.StartService.class, msg -> {
                                 isActive = true;

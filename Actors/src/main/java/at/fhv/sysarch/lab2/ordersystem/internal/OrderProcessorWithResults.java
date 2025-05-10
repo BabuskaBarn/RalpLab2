@@ -8,17 +8,17 @@ import akka.actor.typed.javadsl.Receive;
 
 public class OrderProcessorWithResults {
 
-        public static Behavior<OrderProcessor.Command> create() {
+        public static Behavior<OrderProcessor.OrderCommand> create() {
             return Behaviors.setup(context -> {
-                ActorRef<OrderProcessor.Command> handler =
+                ActorRef<OrderProcessor.OrderCommand> handler =
                         context.spawn(OrderHandler.create(null), "orderHandler");
 
-                ActorRef<OrderProcessor.Command> service =
+                ActorRef<OrderProcessor.OrderCommand> service =
                         context.spawn(OrderServiceImpl.create(), "orderService");
 
-                return new AbstractBehavior<OrderProcessor.Command>(context) {
+                return new AbstractBehavior<OrderProcessor.OrderCommand>(context) {
                     @Override
-                    public Receive<OrderProcessor.Command> createReceive() {
+                    public Receive<OrderProcessor.OrderCommand> createReceive() {
                         return newReceiveBuilder()
                                 .onMessage(OrderProcessor.ProcessOrder.class, msg -> {
                                     handler.tell(msg);

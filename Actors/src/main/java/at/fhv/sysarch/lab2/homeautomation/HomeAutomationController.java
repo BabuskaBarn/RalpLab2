@@ -9,7 +9,7 @@ import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.AirCondition;
 import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
-import at.fhv.sysarch.lab2.homeautomation.devices.OrderProcessor;
+import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
 
@@ -33,7 +33,7 @@ public class HomeAutomationController extends AbstractBehavior<Void>{
         // Pass maxWeight (50kg) and maxCapacity (100 items) to Fridge
         ActorRef<Fridge.FridgeCommand> fridge = getContext().spawn(Fridge.create(50f, 100, orderProcessor), "fridge");
 
-        ActorRef<Void> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge), "UI");
+        ActorRef<Void> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor), "UI");
         getContext().getLog().info("HomeAutomation Application started");
     }
 

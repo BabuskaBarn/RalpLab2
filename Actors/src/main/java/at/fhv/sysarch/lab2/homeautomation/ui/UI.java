@@ -10,6 +10,7 @@ import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.AirCondition;
 import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
 import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
+import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 
 import java.util.Scanner;
 
@@ -20,19 +21,22 @@ public class UI extends AbstractBehavior<Void> {
 
 
     private final ActorRef<Fridge.FridgeCommand> fridge;
-    private final ActorRef<OrderProcessor.OrderProcessor.Command>;
+    private final ActorRef<OrderProcessor.OrderCommand> orderProcessor;
 
-    public static Behavior<Void> create(ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition, ActorRef<Fridge.FridgeCommand> fridge) {
-        return Behaviors.setup(context -> new UI(context, tempSensor, airCondition, fridge  ));
+
+    public static Behavior<Void> create(ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition,
+                                        ActorRef<Fridge.FridgeCommand> fridge, ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
+        return Behaviors.setup(context -> new UI(context, tempSensor, airCondition, fridge, orderProcessor  ));
     }
 
-    private  UI(ActorContext<Void> context, ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition, ActorRef<Fridge.FridgeCommand> fridge) {
+    private  UI(ActorContext<Void> context, ActorRef<TemperatureSensor.TemperatureCommand> tempSensor, ActorRef<AirCondition.AirConditionCommand> airCondition, ActorRef<Fridge.FridgeCommand> fridge, ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
         super(context);
         // TODO: implement actor and behavior as needed
         // TODO: move UI initialization to appropriate place
         this.airCondition = airCondition;
         this.tempSensor = tempSensor;
         this.fridge = fridge;
+        this.orderProcessor=orderProcessor;
         new Thread(this::runCommandLine).start();
 
         getContext().getLog().info("UI started");

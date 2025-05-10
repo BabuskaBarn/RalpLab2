@@ -8,9 +8,9 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 public class OrderProcessor {
-    public interface Command {}
+    public interface OrderCommand {}
 
-    public static final class ProcessOrder implements Command {
+    public static final class ProcessOrder implements OrderCommand {
         public final String productName;
         public final int quantity;
         public final ActorRef<OrderResponse> replyTo;
@@ -22,9 +22,9 @@ public class OrderProcessor {
         }
     }
 
-    public static final class StartService implements Command {}
-    public static final class StopService implements Command {}
-    public static final class GetStatus implements Command {
+    public static final class StartService implements OrderCommand {}
+    public static final class StopService implements OrderCommand {}
+    public static final class GetStatus implements OrderCommand {
         public final ActorRef<StatusResponse> replyTo;
         public GetStatus(ActorRef<StatusResponse> replyTo) {
             this.replyTo = replyTo;
