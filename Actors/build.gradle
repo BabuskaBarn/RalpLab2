@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'com.lightbend.akka.grpc.gradle' version '2.5.5'
 }
 
 group 'at.fhv.lab2'
@@ -11,17 +12,63 @@ repositories {
     maven {
         url "https://repo.akka.io/maven"
     }
+    maven {
+        url "https://repo1.maven.org/maven2/"
+    }
+}
+
+configurations.all {
+    resolutionStrategy {
+        // Force-Download erzwingen
+        force 'com.lightbend.akka.grpc:akka-grpc-codegen_2.12:2.5.5'
+    }
 }
 
 dependencies {
-    implementation 'com.typesafe.akka:akka-actor_3:2.10.2'
-    implementation 'com.typesafe.akka:akka-actor-typed_3:2.10.2'
-    implementation 'com.typesafe.akka:akka-actor-testkit-typed_3:2.10.2'
+    def akkaGrpcVersion = '2.5.5'
+    def akkaVersion = '2.10.5'
+    def akkaHttpVersion = '10.5.3'
+
+    // Akka Core
+    implementation "com.typesafe.akka:akka-actor_3:$akkaVersion"
+    implementation "com.typesafe.akka:akka-actor-typed_3:$akkaVersion"
+    implementation "com.typesafe.akka:akka-stream_3:$akkaVersion"  // Wichtig für gRPC
+
+    // Akka Test
+    testImplementation "com.typesafe.akka:akka-actor-testkit-typed_3:$akkaVersion"
+
+    // Akka HTTP
+    implementation "com.typesafe.akka:akka-http_3:$akkaHttpVersion"
+    implementation "com.typesafe.akka:akka-http2-support_3:$akkaHttpVersion"
+
+    // Akka gRPC
+    implementation "com.lightbend.akka.grpc:akka-grpc-runtime_3:$akkaGrpcVersion"
+
+    // Logging
     implementation 'ch.qos.logback:logback-classic:1.5.18'
+
+    // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.2'
 }
 
+
+
+// Ihre bestehende sourceSets-Konfiguration bleibt erhalten
+sourceSets {
+    main {
+        proto {
+            srcDir 'src/main/proto'
+        }
+    }
+}
+
+
+
+
+processResources{
+    exclude '**/*.proto'
+}
 application {
     mainClass = 'at.fhv.sysarch.lab2.HomeAutomationSystem'
 }
