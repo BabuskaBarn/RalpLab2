@@ -1,13 +1,12 @@
-syntax= "proto3";
+syntax = "proto3";
 
-option java_package ="at.fhv.sysarch.lab2.homeautomation.order.proto";
-option java_multiple_files= true;
+option java_package = "at.fhv.sysarch.lab2.homeautomation.order.proto";
+option java_multiple_files = true;
 
 message OrderRequest {
-  string product =1;
+  string product = 1;
 }
 
 message OrderReply {
-  bool successful=1;
+  bool successful = 1;
 }
-//gradle generateProto

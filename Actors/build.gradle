@@ -54,7 +54,6 @@ dependencies {
 
 
 
-// Ihre bestehende sourceSets-Konfiguration bleibt erhalten
 sourceSets {
     main {
         proto {
@@ -62,9 +61,6 @@ sourceSets {
         }
     }
 }
-
-
-
 
 processResources{
     exclude '**/*.proto'
