@@ -12,6 +12,7 @@ import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
+import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessorWithResults;
 
 import java.util.UUID;
 
@@ -28,12 +29,12 @@ public class HomeAutomationController extends AbstractBehavior<Void>{
 
         ActorRef<TemperatureSensor.TemperatureCommand> tempSensor = getContext().spawn(TemperatureSensor.create(airCondition), "temperatureSensor");
 
-        ActorRef<OrderProcessor.OrderCommand> orderProcessor = getContext().spawn(OrderProcessor.create(), "orderProcessor");
+        ActorRef<OrderProcessor.OrderCommand> orderProcessor = getContext().spawn(OrderProcessorWithResults.create(), "orderProcessor");
 
         // Pass maxWeight (50kg) and maxCapacity (100 items) to Fridge
         ActorRef<Fridge.FridgeCommand> fridge = getContext().spawn(Fridge.create(50f, 100, orderProcessor), "fridge");
-
-        ActorRef<Void> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor), "UI");
+        //wir nehmen UserInput weil wir einen Inputhandler haben sollte die implementation fehlerhaft sein dann wieder auf void wechseln
+        ActorRef<UI.UserInput> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor), "UI");
         getContext().getLog().info("HomeAutomation Application started");
     }
 

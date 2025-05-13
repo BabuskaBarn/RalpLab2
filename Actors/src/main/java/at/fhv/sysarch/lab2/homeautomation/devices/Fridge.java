@@ -7,6 +7,8 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
+import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Order;
+import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Product;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 
 import java.util.ArrayList;
@@ -17,10 +19,22 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
 
     public interface FridgeCommand {}
 
-    // Command definitions
+    public static final class IgnoreResponse implements FridgeCommand {
+        private final OrderResponse response;
+
+        public IgnoreResponse(OrderResponse response) {
+            this.response = response;
+        }
+
+        public OrderResponse getResponse() {
+            return response;
+        }
+    }
+
+    // Commands
     public static final class ConsumeProduct implements FridgeCommand {
-        final String productName;
-        final ActorRef<OrderResponse> replyTo;
+        public final String productName;
+        public final ActorRef<OrderResponse> replyTo;
 
         public ConsumeProduct(String productName, ActorRef<OrderResponse> replyTo) {
             this.productName = productName;
@@ -28,207 +42,221 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
         }
     }
 
-    public static final class OrderProducts implements FridgeCommand {
-        final String productName;
-        final int quantity;
-        final ActorRef<OrderResponse> replyTo;
+    public static final class PlaceOrder implements FridgeCommand {
+        public final String productName;
+        public final int quantity;
+        public final ActorRef<OrderResponse> replyTo;
 
-        public OrderProducts(String productName, int quantity, ActorRef<OrderResponse> replyTo) {
+        public PlaceOrder(String productName, int quantity, ActorRef<OrderResponse> replyTo) {
             this.productName = productName;
             this.quantity = quantity;
             this.replyTo = replyTo;
         }
     }
 
-    public static final class GetProducts implements FridgeCommand {
-        final ActorRef<ProductsResponse> replyTo;
+    public static final class GetInventory implements FridgeCommand {
+        public final ActorRef<InventoryResponse> replyTo;
 
-        public GetProducts(ActorRef<ProductsResponse> replyTo) {
+        public GetInventory(ActorRef<InventoryResponse> replyTo) {
             this.replyTo = replyTo;
         }
     }
 
-    public static final class GetOrderHistory implements FridgeCommand {
-        final ActorRef<OrderHistoryResponse> replyTo;
-
-        public GetOrderHistory(ActorRef<OrderHistoryResponse> replyTo) {
-            this.replyTo = replyTo;
-        }
-    }
-
-    // Response messages
+    // Responses
     public interface OrderResponse {}
-    public static final class OrderAccepted implements OrderResponse {
-        final String message;
-
-        public OrderAccepted(String message) {
-            this.message = message;
-        }
+    public static final class OrderSuccess implements OrderResponse {
+        public final String message;
+        public OrderSuccess(String message) { this.message = message; }
     }
-    public static final class OrderRejected implements OrderResponse {
-        final String reason;
-
-        public OrderRejected(String reason) {
-            this.reason = reason;
-        }
+    public static final class OrderFailed implements OrderResponse {
+        public final String reason;
+        public OrderFailed(String reason) { this.reason = reason; }
     }
-    public static final class ProductsResponse {
-        final List<Product> products;
 
-        public ProductsResponse(List<Product> products) {
+    public static final class InventoryResponse {
+        public final List<Product> products;
+        public final List<Order> orderHistory;
+        public InventoryResponse(List<Product> products, List<Order> orderHistory) {
             this.products = new ArrayList<>(products);
-        }
-    }
-    public static final class OrderHistoryResponse {
-        final List<Order> orders;
-
-        public OrderHistoryResponse(List<Order> orders) {
-            this.orders = new ArrayList<>(orders);
+            this.orderHistory = new ArrayList<>(orderHistory);
         }
     }
 
-    // Product and Order data classes
-    public static class Product {
-        private final String name;
-        private int quantity;
-        private final float weight;
-        private final float price;
+    // Internal message for order processor responses
+    private static final class OrderCompleted implements FridgeCommand {
+        public final OrderProcessor.OrderResponse response;
+        public final String productName;
+        public final int quantity;
 
-        public Product(String name, int quantity, float weight, float price) {
-            this.name = name;
-            this.quantity = quantity;
-            this.weight = weight;
-            this.price = price;
-        }
-
-        // Getters and setters...
-    }
-
-    public static class Order {
-        private final String productName;
-        private final int quantity;
-        private final String status;
-
-        public Order(String productName, int quantity, String status) {
+        public OrderCompleted(OrderProcessor.OrderResponse response,
+                              String productName, int quantity) {
+            this.response = response;
             this.productName = productName;
             this.quantity = quantity;
-            this.status = status;
         }
     }
 
-    private final List<Product> products;
+    private final List<Product> inventory;
     private final List<Order> orderHistory;
     private final float maxWeight;
     private final int maxCapacity;
     private final ActorRef<OrderProcessor.OrderCommand> orderProcessor;
 
-    public static Behavior<FridgeCommand> create(
-            float maxWeight,
-            int maxCapacity,
-            ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
-        return Behaviors.setup(context -> new Fridge(context, maxWeight, maxCapacity, orderProcessor));
+    public static Behavior<FridgeCommand> create(float maxWeight, int maxCapacity,
+                                                 ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
+        return Behaviors.setup(ctx -> new Fridge(ctx, maxWeight, maxCapacity, orderProcessor));
     }
 
-    private Fridge(
-            ActorContext<FridgeCommand> context,
-            float maxWeight,
-            int maxCapacity,
-            ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
+    private Fridge(ActorContext<FridgeCommand> context, float maxWeight, int maxCapacity,
+                   ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
         super(context);
         this.maxWeight = maxWeight;
         this.maxCapacity = maxCapacity;
         this.orderProcessor = orderProcessor;
-        this.products = new ArrayList<>();
+        this.inventory = new ArrayList<>();
         this.orderHistory = new ArrayList<>();
 
-        // Initial products
-        products.add(new Product("Milk", 2, 1.0f, 1.5f));
-        products.add(new Product("Eggs", 10, 0.5f, 3.0f));
+        // Initialize with some products
+        inventory.add(new Product("Milk", 2, 1.0f, 1.5f));
+        inventory.add(new Product("Eggs", 10, 0.5f, 3.0f));
 
-        getContext().getLog().info("Fridge started with capacity {} items and max weight {}", maxCapacity, maxWeight);
+        context.getLog().info("Fridge initialized with capacity: {} items, max weight: {}kg",
+                maxCapacity, maxWeight);
     }
 
     @Override
     public Receive<FridgeCommand> createReceive() {
         return newReceiveBuilder()
-                .onMessage(ConsumeProduct.class, this::onConsumeProduct)
-                .onMessage(OrderProducts.class, this::onOrderProducts)
-                .onMessage(GetProducts.class, this::onGetProducts)
-                .onMessage(GetOrderHistory.class, this::onGetOrderHistory)
+                .onMessage(ConsumeProduct.class, this::handleConsume)
+                .onMessage(PlaceOrder.class, this::handlePlaceOrder)
+                .onMessage(GetInventory.class, this::handleGetInventory)
+                .onMessage(OrderCompleted.class, this::handleOrderCompleted)
+                .onMessage(IgnoreResponse.class, this::handleIgnoreResponse)
                 .onSignal(PostStop.class, signal -> onPostStop())
                 .build();
     }
 
-    private Behavior<FridgeCommand> onConsumeProduct(ConsumeProduct cmd) {
-        Optional<Product> productOpt = products.stream()
-                .filter(p -> p.getName().equals(cmd.productName))
-                .findFirst();
+    private Behavior<FridgeCommand> handleConsume(ConsumeProduct cmd) {
+        Optional<Product> product = findProduct(cmd.productName);
 
-        if (productOpt.isPresent()) {
-            Product product = productOpt.get();
-            product.setQuantity(product.getQuantity() - 1);
+        if (product.isPresent()) {
+            Product p = product.get();
+            p.setQuantity(p.getQuantity() - 1);
 
-            getContext().getLog().info("Consumed 1 {}. Remaining: {}", product.getName(), product.getQuantity());
-            cmd.replyTo.tell(new OrderAccepted("Product consumed"));
+            getContext().getLog().info("Consumed 1 {}. Remaining: {}", p.getName(), p.getQuantity());
+            cmd.replyTo.tell(new OrderSuccess("Consumed successfully"));
 
-            if (product.getQuantity() <= 0) {
-                // Auto-reorder
-                getContext().getSelf().tell(
-                        new OrderProducts(product.getName(), 5, ActorRef.noSender()),
-                        getContext().getSelf()
+            if (p.getQuantity() <= 0) {
+                ActorRef<OrderResponse> adapter = getContext().messageAdapter(
+                        OrderResponse.class,
+                        IgnoreResponse::new
                 );
+
+                getContext().getSelf().tell(
+                        new PlaceOrder(p.getName(), 5, adapter)
+                );
+                getContext().getLog().info("Triggered auto-reorder for {}", p.getName());
             }
         } else {
-            cmd.replyTo.tell(new OrderRejected("Product not found"));
+            cmd.replyTo.tell(new OrderFailed("Product not found"));
         }
-
         return this;
     }
 
-    private Behavior<FridgeCommand> onOrderProducts(OrderProducts cmd) {
-        float currentWeight = calculateTotalWeight();
-        int currentItems = products.size();
-
-        // Check capacity
-        if (currentItems + cmd.quantity > maxCapacity) {
-            cmd.replyTo.tell(new OrderRejected("Not enough space in fridge"));
+    private Behavior<FridgeCommand> handlePlaceOrder(PlaceOrder cmd) {
+        if (calculateTotalItems() + cmd.quantity > maxCapacity) {
+            if (cmd.replyTo != null) {
+                cmd.replyTo.tell(new OrderFailed("Exceeds fridge capacity"));
+            }
             return this;
         }
 
-        // Check weight (simplified - assuming each product has same weight)
-        if (currentWeight + (cmd.quantity * 0.5f) > maxWeight) {
-            cmd.replyTo.tell(new OrderRejected("Would exceed maximum weight"));
+        if (calculateTotalWeight() + (cmd.quantity * 0.5f) > maxWeight) {
+            if (cmd.replyTo != null) {
+                cmd.replyTo.tell(new OrderFailed("Exceeds weight limit"));
+            }
             return this;
         }
 
-        // Forward to order processor
         orderProcessor.tell(new OrderProcessor.ProcessOrder(
                 cmd.productName,
                 cmd.quantity,
-                getContext().getSelf()
+                getContext().messageAdapter(
+                        OrderProcessor.OrderResponse.class,
+                        response -> new OrderCompleted(response, cmd.productName, cmd.quantity)
+                )
         ));
 
+        orderHistory.add(new Order(cmd.productName, cmd.quantity, "Processing"));
         return this;
     }
 
-    private Behavior<FridgeCommand> onGetProducts(GetProducts cmd) {
-        cmd.replyTo.tell(new ProductsResponse(products));
+    private Behavior<FridgeCommand> handleOrderCompleted(OrderCompleted cmd) {
+        if (cmd.response instanceof OrderProcessor.OrderSuccess) {
+            OrderProcessor.OrderSuccess success = (OrderProcessor.OrderSuccess) cmd.response;
+            updateInventory(cmd.productName, cmd.quantity);
+            updateOrderHistory(cmd.productName, cmd.quantity, "Completed");
+            getContext().getLog().info("Order completed: {}", success.details);
+        } else if (cmd.response instanceof OrderProcessor.OrderFailed) {
+            OrderProcessor.OrderFailed failed = (OrderProcessor.OrderFailed) cmd.response;
+            updateOrderHistory(cmd.productName, cmd.quantity, "Failed: " + failed.reason);
+            getContext().getLog().warn("Order failed: {}", failed.reason);
+        }
         return this;
     }
 
-    private Behavior<FridgeCommand> onGetOrderHistory(GetOrderHistory cmd) {
-        cmd.replyTo.tell(new OrderHistoryResponse(orderHistory));
+    private Behavior<FridgeCommand> handleIgnoreResponse(IgnoreResponse cmd) {
+        if (cmd.getResponse() instanceof OrderSuccess) {
+            getContext().getLog().debug("Auto-reorder succeeded: {}",
+                    ((OrderSuccess)cmd.getResponse()).message);
+        } else {
+            getContext().getLog().warn("Auto-reorder failed: {}",
+                    ((OrderFailed)cmd.getResponse()).reason);
+        }
         return this;
+    }
+
+    private Behavior<FridgeCommand> handleGetInventory(GetInventory cmd) {
+        cmd.replyTo.tell(new InventoryResponse(inventory, orderHistory));
+        return this;
+    }
+
+    private Optional<Product> findProduct(String name) {
+        return inventory.stream()
+                .filter(p -> p.getName().equals(name))
+                .findFirst();
+    }
+
+    private void updateInventory(String productName, int quantity) {
+        findProduct(productName).ifPresentOrElse(
+                p -> p.setQuantity(p.getQuantity() + quantity),
+                () -> inventory.add(new Product(productName, quantity, 0.5f, 1.0f))
+        );
+    }
+
+    private void updateOrderHistory(String productName, int quantity, String status) {
+        orderHistory.removeIf(o ->
+                o.getProductName().equals(productName) &&
+                        o.getQuantity() == quantity &&
+                        o.getStatus().equals("Processing")
+        );
+        orderHistory.add(new Order(productName, quantity, status));
     }
 
     private float calculateTotalWeight() {
-        return products.stream()
-                .map(p -> p.getWeight() * p.getQuantity())
-                .reduce(0f, Float::sum);
+        return (float) inventory.stream()
+                .mapToDouble(p -> p.getWeight() * p.getQuantity())
+                .sum();
     }
 
-    private Fridge onPostStop() {
-        getContext().getLog().info("Fridge actor stopped");
+    private int calculateTotalItems() {
+        return inventory.stream()
+                .mapToInt(Product::getQuantity)
+                .sum();
+    }
+
+    private Behavior<FridgeCommand> onPostStop() {
+        getContext().getLog().info("Fridge stopped");
         return this;
     }
 }

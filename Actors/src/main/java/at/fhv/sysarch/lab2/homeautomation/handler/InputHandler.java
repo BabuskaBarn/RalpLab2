@@ -1,14 +1,16 @@
 package at.fhv.sysarch.lab2.homeautomation.handler;
 
-import akka.actor.ActorContext;
+import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.javadsl.AbstractBehavior;
+import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
+import at.fhv.sysarch.lab2.homeautomation.ui.UI;
 
 import java.util.Scanner;
 
-public class InputHandler  extends AbstractBehavior<InputHandler.Command> {
+public class InputHandler extends AbstractBehavior<InputHandler.Command> {
     public interface Command {}
 
     public static final class StartInputLoop implements Command {
@@ -34,15 +36,23 @@ public class InputHandler  extends AbstractBehavior<InputHandler.Command> {
     }
 
     private Behavior<Command> onStartInputLoop(StartInputLoop msg) {
+        getContext().getLog().info("Starting input loop...");
+
         new Thread(() -> {
             Scanner scanner = new Scanner(System.in);
-            String line;
-            while (!(line = scanner.nextLine()).equalsIgnoreCase("quit")) {
-                msg.uiActor.tell(new UI.UserInput(line));
+            System.out.println("System ready. Type 'help' for commands or 'quit' to exit.");
+
+            while (true) {
+                String line = scanner.nextLine().trim();
+                if (line.equalsIgnoreCase("quit")) {
+                    getContext().getLog().info("Shutting down input handler");
+                    break;
+                }
+                msg.uiActor.tell(new UI.RawInput(line));
             }
+            scanner.close();
         }).start();
+
         return this;
     }
 }
-
-
