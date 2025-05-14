@@ -48,7 +48,7 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
 
         public PlaceOrder(Order order , ActorRef<OrderResponse> replyTo) {
             this.order = order;
-            //this.replyTo = replyTo;
+            this.replyTo = replyTo;
         }
     }
 
