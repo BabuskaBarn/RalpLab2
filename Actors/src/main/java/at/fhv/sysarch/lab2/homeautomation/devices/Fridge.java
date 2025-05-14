@@ -43,14 +43,12 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
     }
 
     public static final class PlaceOrder implements FridgeCommand {
-        public final String productName;
-        public final int quantity;
+        public final Order order;
         public final ActorRef<OrderResponse> replyTo;
 
-        public PlaceOrder(String productName, int quantity, ActorRef<OrderResponse> replyTo) {
-            this.productName = productName;
-            this.quantity = quantity;
-            this.replyTo = replyTo;
+        public PlaceOrder(Order order , ActorRef<OrderResponse> replyTo) {
+            this.order = order;
+            //this.replyTo = replyTo;
         }
     }
 

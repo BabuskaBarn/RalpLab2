@@ -7,10 +7,9 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
-import at.fhv.sysarch.lab2.homeautomation.devices.AirCondition;
-import at.fhv.sysarch.lab2.homeautomation.devices.Fridge;
+import at.fhv.sysarch.lab2.homeautomation.devices.*;
+import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttSubscriber;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
-import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessorWithResults;
 
@@ -22,21 +21,46 @@ public class HomeAutomationController extends AbstractBehavior<Void>{
         return Behaviors.setup(HomeAutomationController::new);
     }
 
-    private  HomeAutomationController(ActorContext<Void> context) {
+
+    private HomeAutomationController(ActorContext<Void> context) {
         super(context);
-        // TODO: consider guardians and hierarchies. Who should create and communicate with which Actors?
-        ActorRef<AirCondition.AirConditionCommand> airCondition = getContext().spawn(AirCondition.create(UUID.randomUUID().toString()), "AirCondition");
 
-        ActorRef<TemperatureSensor.TemperatureCommand> tempSensor = getContext().spawn(TemperatureSensor.create(airCondition), "temperatureSensor");
+        // Geräte
+        ActorRef<AirCondition.AirConditionCommand> airCondition =
+                context.spawn(AirCondition.create(UUID.randomUUID().toString()), "AirCondition");
 
-        ActorRef<OrderProcessor.OrderCommand> orderProcessor = getContext().spawn(OrderProcessorWithResults.create(), "orderProcessor");
+        ActorRef<OrderProcessor.OrderCommand> orderProcessor =
+                context.spawn(OrderProcessorWithResults.create(), "OrderProcessor");
 
-        // Pass maxWeight (50kg) and maxCapacity (100 items) to Fridge
-        ActorRef<Fridge.FridgeCommand> fridge = getContext().spawn(Fridge.create(50f, 100, orderProcessor), "fridge");
-        //wir nehmen UserInput weil wir einen Inputhandler haben sollte die implementation fehlerhaft sein dann wieder auf void wechseln
-        ActorRef<UI.UserInput> ui = getContext().spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor), "UI");
-        getContext().getLog().info("HomeAutomation Application started");
+        ActorRef<Fridge.FridgeCommand> fridge =
+                context.spawn(Fridge.create(50f, 100, orderProcessor), "Fridge");
+
+        // Zentrale: Blinds
+        ActorRef<Blinds.BlindsCommand> blinds =
+                context.spawn(Blinds.create(), "Blinds");
+
+        // Sensoren
+        ActorRef<WeatherSensor.WeatherCommand> weatherSensor =
+                context.spawn(WeatherSensor.create(blinds), "WeatherSensor");
+
+        ActorRef<TemperatureSensor.TemperatureCommand> tempSensor =
+                context.spawn(TemperatureSensor.create(airCondition), "TemperatureSensor");
+
+        // MQTT Subscriber: sendet Werte an WeatherSensor + TemperatureSensor
+        context.spawn(MqttSubscriber.create(weatherSensor, tempSensor), "MqttSubscriber");
+
+        // Media Station: sendet MediaStatus an Blinds
+        ActorRef<MediaStation.MediaStationCommand> mediaStation =
+                context.spawn(MediaStation.create(blinds), "MediaStation");
+
+        // UI (muss auch Media & Weather simulieren können)
+        ActorRef<Void> ui =
+                context.spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor, weatherSensor, mediaStation), "UI");
+
+        context.getLog().info("HomeAutomation Application started");
     }
+
+
 
     @Override
     public Receive<Void> createReceive() {

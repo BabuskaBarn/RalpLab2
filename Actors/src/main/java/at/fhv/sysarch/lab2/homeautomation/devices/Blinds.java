@@ -6,50 +6,46 @@ import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
-import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import at.fhv.sysarch.lab2.homeautomation.devices.Messages.WeatherConditionMessage;
 
 public class Blinds extends AbstractBehavior<Blinds.BlindsCommand> {
+
     public interface BlindsCommand {}
 
+    // Kommando zur Verarbeitung der Wetteränderung
     public static final class WeatherChanged implements BlindsCommand {
-        final boolean isSunny;
+        public final boolean isSunny;
+
         public WeatherChanged(boolean isSunny) {
             this.isSunny = isSunny;
         }
     }
 
+    // Kommando zur Verarbeitung der Medienstatusänderung
     public static final class MediaStatusChanged implements BlindsCommand {
-        final boolean isPlaying;
+        public final boolean isPlaying;
+
         public MediaStatusChanged(boolean isPlaying) {
             this.isPlaying = isPlaying;
         }
     }
 
-    private boolean isOpen = true;
-    private boolean moviePlaying = false;
-    private final MqttService mqttService;
+    // Kommando zum manuellen Umschalten der Jalousien
+    public static final class ToggleCommand implements BlindsCommand {}
 
-    public static Behavior<BlindsCommand> create(MqttService mqttService) {
-        return Behaviors.setup(context -> new Blinds(context, mqttService));
+    private boolean isOpen = true;
+    private boolean isMoviePlaying = false;
+    private boolean isSunny = true;
+
+    // Factory-Methode zum Erstellen des Blinds-Actors
+    public static Behavior<BlindsCommand> create() {
+        return Behaviors.setup(Blinds::new);
     }
 
-    private Blinds(ActorContext<BlindsCommand> context, MqttService mqttService) {
+    // Konstruktor
+    private Blinds(ActorContext<BlindsCommand> context) {
         super(context);
-        this.mqttService = mqttService;
-
-        // Subscribe to MQTT media updates
-        try {
-            mqttService.subscribe("home/media", (topic, message) -> {
-                ObjectMapper mapper = new ObjectMapper();
-                MediaStatus status = mapper.readValue(message.getPayload(), MediaStatus.class);
-                getContext().getSelf().tell(new MediaStatusChanged(status.isPlaying));
-            });
-        } catch (Exception e) {
-            getContext().getLog().error("Failed to subscribe to MQTT", e);
-        }
-
-        getContext().getLog().info("Blinds started");
+        context.getLog().info("Blinds actor started");
     }
 
     @Override
@@ -57,36 +53,51 @@ public class Blinds extends AbstractBehavior<Blinds.BlindsCommand> {
         return newReceiveBuilder()
                 .onMessage(WeatherChanged.class, this::onWeatherChanged)
                 .onMessage(MediaStatusChanged.class, this::onMediaStatusChanged)
+                .onMessage(ToggleCommand.class, this::onToggle)
                 .onSignal(PostStop.class, signal -> onPostStop())
                 .build();
     }
 
+    // Reaktion auf Wetteränderung
     private Behavior<BlindsCommand> onWeatherChanged(WeatherChanged w) {
-        if (!moviePlaying) { // Only react to weather if no movie is playing
-            boolean shouldOpen = !w.isSunny;
-            setPosition(shouldOpen);
-        }
+        this.isSunny = w.isSunny;
+        evaluatePosition();
         return this;
     }
 
+    // Reaktion auf Medienstatusänderung
     private Behavior<BlindsCommand> onMediaStatusChanged(MediaStatusChanged m) {
-        this.moviePlaying = m.isPlaying;
-        setPosition(!moviePlaying); // Close if movie playing, open otherwise
+        this.isMoviePlaying = m.isPlaying;
+        evaluatePosition();
         return this;
     }
 
-    private void setPosition(boolean open) {
-        this.isOpen = open;
-        getContext().getLog().info("Blinds are now {}", isOpen ? "open" : "closed");
+    // Reaktion auf manuelles Umschalten
+    private Behavior<BlindsCommand> onToggle(ToggleCommand cmd) {
+        setPosition(!isOpen);
+        return this;
     }
 
+    // Logik zum automatischen Steuern der Blinds
+    private void evaluatePosition() {
+        if (isMoviePlaying) {
+            setPosition(false); // Schließen bei laufendem Film
+        } else {
+            setPosition(!isSunny); // Öffnen, wenn es nicht sonnig ist
+        }
+    }
+
+    // Setzt die aktuelle Position der Jalousien
+    private void setPosition(boolean open) {
+        if (this.isOpen != open) {
+            this.isOpen = open;
+            getContext().getLog().info("Blinds are now {}", isOpen ? "open" : "closed");
+        }
+    }
+
+    // Verhalten bei Stoppen des Actors
     private Blinds onPostStop() {
         getContext().getLog().info("Blinds actor stopped");
         return this;
-    }
-
-    private static class MediaStatus {
-        public boolean isPlaying;
-        public MediaStatus(boolean playing) { this.isPlaying = playing; }
     }
 }

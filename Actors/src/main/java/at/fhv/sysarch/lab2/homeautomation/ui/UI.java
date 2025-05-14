@@ -8,218 +8,234 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.*;
-import at.fhv.sysarch.lab2.homeautomation.handler.InputHandler;
-import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
+import at.fhv.sysarch.lab2.homeautomation.devices.MediaStation.MediaStationCommand;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.FridgeCommand;
+import at.fhv.sysarch.lab2.homeautomation.devices.Messages.Environment;
+import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Order;
+import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Product;
+import at.fhv.sysarch.lab2.homeautomation.devices.states.MovieState;
+import at.fhv.sysarch.lab2.homeautomation.devices.states.WeatherState;
 
-public class UI extends AbstractBehavior<UI.UserInput> {
+import java.util.*;
 
-    public interface UserInput {
-        String getInput();
+public class UI extends AbstractBehavior<Void> {
+
+    private ActorRef<AirCondition.AirConditionCommand> airCondition;
+    private ActorRef<MediaStationCommand> mediaStation;
+    private ActorRef<Environment.EnvironmentCommand> environment;
+    private ActorRef<Blinds.BlindsCommand> blinds;
+    private ActorRef<TemperatureSensor.TemperatureCommand> tempSensor;
+    private ActorRef<WeatherSensor.WeatherCommand> weather;
+    private ActorRef<FridgeCommand> fridge;
+
+    public static Behavior<Void> create(ActorRef<MediaStationCommand> mediaStation,
+                                        ActorRef<AirCondition.AirConditionCommand> airCondition,
+                                        ActorRef<Environment.EnvironmentCommand> environment,
+                                        ActorRef<Blinds.BlindsCommand> blinds,
+                                        ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
+                                        ActorRef<WeatherSensor.WeatherCommand> weather,
+                                        ActorRef<FridgeCommand> fridge) {
+        return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, environment, blinds, tempSensor, weather, fridge));
     }
 
-    public static final class RawInput implements UserInput {
-        private final String input;
-
-        public RawInput(String input) {
-            this.input = input;
-        }
-
-        @Override
-        public String getInput() {
-            return input;
-        }
-    }
-
-    private static final class IgnoreResponse implements UserInput {
-        @Override
-        public String getInput() {
-            return "";
-        }
-    }
-
-    private final ActorRef<TemperatureSensor.TemperatureCommand> tempSensor;
-    private final ActorRef<AirCondition.AirConditionCommand> airCondition;
-    private final ActorRef<Fridge.FridgeCommand> fridge;
-    private final ActorRef<OrderProcessor.OrderCommand> orderProcessor;
-    private final ActorRef<InputHandler.Command> inputHandler;
-
-    public static Behavior<UserInput> create(
-            ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
-            ActorRef<AirCondition.AirConditionCommand> airCondition,
-            ActorRef<Fridge.FridgeCommand> fridge,
-            ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
-        return Behaviors.setup(context -> new UI(context, tempSensor, airCondition, fridge, orderProcessor));
-    }
-
-    private UI(ActorContext<UserInput> context,
-               ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
+    private UI(ActorContext<Void> context, ActorRef<MediaStationCommand> mediaStation,
                ActorRef<AirCondition.AirConditionCommand> airCondition,
-               ActorRef<Fridge.FridgeCommand> fridge,
-               ActorRef<OrderProcessor.OrderCommand> orderProcessor) {
+               ActorRef<Environment.EnvironmentCommand> environment,
+               ActorRef<Blinds.BlindsCommand> blinds,
+               ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
+               ActorRef<WeatherSensor.WeatherCommand> weather,
+               ActorRef<FridgeCommand> fridge) {
         super(context);
-        this.tempSensor = tempSensor;
-        this.airCondition = airCondition;
         this.fridge = fridge;
-        this.orderProcessor = orderProcessor;
+        this.mediaStation = mediaStation;
+        this.environment = environment;
+        this.blinds = blinds;
+        this.tempSensor = tempSensor;
+        this.weather = weather;
+        this.airCondition = airCondition;
+        getContext().getLog().info("UI started");
 
-        this.inputHandler = context.spawn(InputHandler.create(), "inputHandler");
-        this.inputHandler.tell(new InputHandler.StartInputLoop(getContext().getSelf()));
-
-        printWelcomeMessage();
-        context.getLog().info("UI started");
+        new Thread(this::runCommandLine).start();
     }
 
     @Override
-    public Receive<UserInput> createReceive() {
-        return newReceiveBuilder()
-                .onMessage(RawInput.class, this::handleInput)
-                .onSignal(PostStop.class, signal -> onPostStop())
-                .build();
-    }
-
-    private Behavior<UserInput> handleInput(RawInput msg) {
-        String[] parts = msg.getInput().split("\\s+");
-        if (parts.length == 0) return this;
-
-        String command = parts[0].toLowerCase();
-        try {
-            switch (command) {
-                case "t":
-                case "temp":
-                    handleTemperatureCommand(parts);
-                    break;
-                case "ac":
-                    handleAirConditionCommand(parts);
-                    break;
-                case "order":
-                    handleOrderCommand(parts);
-                    break;
-                case "inventory":
-                    handleInventoryCommand();
-                    break;
-                case "consume":
-                    handleConsumeCommand(parts);
-                    break;
-                case "help":
-                    printHelp();
-                    break;
-                case "quit":
-                    return Behaviors.stopped();
-                default:
-                    System.out.println("Unknown command. Type 'help' for available commands.");
-            }
-        } catch (Exception e) {
-            getContext().getLog().error("Error processing command: {}", e.getMessage());
-            System.out.println("Error: " + e.getMessage());
-        }
-        return this;
-    }
-
-    private void handleTemperatureCommand(String[] parts) {
-        if (parts.length >= 2) {
-            double temperature = Double.parseDouble(parts[1]);
-            tempSensor.tell(new TemperatureSensor.ReadTemperature(temperature));
-            System.out.println("Temperature set to: " + temperature + "°C");
-        } else {
-            System.out.println("Usage: temp <temperature>");
-        }
-    }
-
-    private void handleAirConditionCommand(String[] parts) {
-        if (parts.length >= 2) {
-            boolean active = Boolean.parseBoolean(parts[1]);
-            airCondition.tell(new AirCondition.PowerAirCondition(active));
-            System.out.println("Air Condition " + (active ? "activated" : "deactivated"));
-        } else {
-            System.out.println("Usage: ac <true|false>");
-        }
-    }
-
-    private void handleOrderCommand(String[] parts) {
-        if (parts.length >= 3) {
-            String product = parts[1];
-            int quantity = Integer.parseInt(parts[2]);
-
-            ActorRef<Fridge.OrderResponse> replyTo = getContext().messageAdapter(
-                    Fridge.OrderResponse.class,
-                    response -> {
-                        if (response instanceof Fridge.OrderSuccess) {
-                            System.out.println("Order success: " + ((Fridge.OrderSuccess) response).message);
-                        } else {
-                            System.out.println("Order failed: " + ((Fridge.OrderFailed) response).reason);
-                        }
-                        return new IgnoreResponse();
-                    }
-            );
-
-            fridge.tell(new Fridge.PlaceOrder(product, quantity, replyTo));
-            System.out.println("Processing order for " + quantity + " x " + product);
-        } else {
-            System.out.println("Usage: order <product> <quantity>");
-        }
-    }
-
-    private void handleInventoryCommand() {
-        ActorRef<Fridge.InventoryResponse> replyTo = getContext().messageAdapter(
-                Fridge.InventoryResponse.class,
-                response -> {
-                    System.out.println("\n=== FRIDGE INVENTORY ===");
-                    System.out.println("Products:");
-                    response.products.forEach(p ->
-                            System.out.printf("- %s: %d units (%.1fkg each)\n",
-                                    p.getName(), p.getQuantity(), p.getWeight()));
-
-                    System.out.println("\nOrder History:");
-                    response.orderHistory.forEach(o ->
-                            System.out.printf("- %d x %s: %s\n",
-                                    o.getQuantity(), o.getProductName(), o.getStatus()));
-                    return new IgnoreResponse();
-                }
-        );
-        fridge.tell(new Fridge.GetInventory(replyTo));
-    }
-
-    private void handleConsumeCommand(String[] parts) {
-        if (parts.length >= 2) {
-            String product = parts[1];
-
-            ActorRef<Fridge.OrderResponse> replyTo = getContext().messageAdapter(
-                    Fridge.OrderResponse.class,
-                    response -> {
-                        if (response instanceof Fridge.OrderSuccess) {
-                            System.out.println("Consumed: " + product);
-                        } else {
-                            System.out.println("Failed to consume: " + ((Fridge.OrderFailed) response).reason);
-                        }
-                        return new IgnoreResponse();
-                    }
-            );
-
-            fridge.tell(new Fridge.ConsumeProduct(product, replyTo));
-        } else {
-            System.out.println("Usage: consume <product>");
-        }
-    }
-
-    private void printWelcomeMessage() {
-        System.out.println("\n=== SMART HOME CONTROL SYSTEM ===");
-        System.out.println("Type 'help' for available commands");
-    }
-
-    private void printHelp() {
-        System.out.println("\nAvailable commands:");
-        System.out.println("  temp <value>       - Set temperature (e.g., 'temp 22.5')");
-        System.out.println("  ac <true|false>    - Toggle air conditioner");
-        System.out.println("  order <prod> <qty> - Place fridge order (e.g., 'order Milk 2')");
-        System.out.println("  consume <product>  - Consume product from fridge");
-        System.out.println("  inventory          - Show fridge contents and history");
-        System.out.println("  help               - Show this help");
-        System.out.println("  quit               - Exit the system\n");
+    public Receive<Void> createReceive() {
+        return newReceiveBuilder().onSignal(PostStop.class, signal -> onPostStop()).build();
     }
 
     private UI onPostStop() {
         getContext().getLog().info("UI stopped");
-        System.out.println("System shutting down...");
         return this;
+    }
+
+    public void runCommandLine() {
+        Scanner scanner = new Scanner(System.in);
+        String reader;
+        System.out.println("Type 'exit' to quit.");
+        System.out.println("Available commands: environment, media, blinds, aircondition, fridge");
+        while (scanner.hasNextLine()) {
+            reader = scanner.nextLine();
+            if (reader.equalsIgnoreCase("exit")) {
+                System.out.println("Bye");
+                System.exit(0);
+                break;
+            }
+            handleCommand(reader);
+        }
+    }
+
+    private void handleCommand(String command) {
+        String[] parts = command.split(" ");
+        switch (parts[0].toLowerCase()) {
+            case "environment":
+                handleEnvironment(parts);
+                break;
+            case "media":
+                handleMedia(parts);
+                break;
+            case "blinds":
+                handleBlinds();
+                break;
+            case "aircondition":
+                handleAirCondition();
+                break;
+            case "fridge":
+                handleFridge(parts);
+                break;
+            default:
+                System.out.println("Unknown command.");
+                break;
+        }
+    }
+
+    private void handleEnvironment(String[] parts) {
+        if (parts.length > 1) {
+            switch (parts[1].toLowerCase()) {
+                case "sett":
+                    // Setzt die Temperatur
+                    try {
+                        double temp = Double.parseDouble(parts[2]);
+                        environment.tell(new Environment.SetTemperature(temp));
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid temperature value. Please provide a valid number.");
+                    }
+                    break;
+
+                case "setw":
+                    // Setzt den Wetterzustand
+                    if (parts.length > 2) {
+                        try {
+                            WeatherState weatherState = WeatherState.valueOf(parts[2].toUpperCase());
+                            environment.tell(new Environment.SetWeather(weatherState));
+                        } catch (IllegalArgumentException e) {
+                            System.out.println("Invalid weather state. Valid values are: sunny, stormy, foggy, cloudy.");
+                        }
+                    } else {
+                        System.out.println("Please provide a weather state. Valid values are: sunny, stormy, foggy, cloudy.");
+                    }
+                    break;
+
+                case "gett":
+                    // Hier kann die Temperatur abgerufen werden, falls gewünscht
+                    System.out.println("Getting the current temperature (implement this logic)");
+                    break;
+
+                default:
+                    System.out.println("Unknown environment command.");
+                    break;
+            }
+        } else {
+            System.out.println("Invalid command. Please provide an action.");
+        }
+    }
+
+
+    private void handleMedia(String[] parts) {
+        if (parts.length > 1) {
+            switch (parts[1].toLowerCase()) {
+                case "play":
+                    if (parts.length < 3) {
+                        System.out.println("No movie specified!");
+                        break;
+                    }
+                    String movieName = parts[2];
+                    // Assuming we have a method to create MovieState by name
+                    MovieState movieToPlay = getMovieByName(movieName);
+                    if (movieToPlay != null) {
+                        mediaStation.tell(new MediaStation.PlayMovie(movieToPlay));
+                    } else {
+                        System.out.println("Movie not found");
+                    }
+                    break;
+                case "stop":
+                    mediaStation.tell(new MediaStation.StopMovie());
+                    System.out.println("Tried to stop the movie");
+                    break;
+                case "state":
+                    mediaStation.tell(new MediaStation.GetStatus());
+                    System.out.println("Tried to get the status of the media station");
+                    break;
+                default:
+                    System.out.println("Invalid media command");
+                    break;
+            }
+        }
+    }
+
+    private void handleBlinds() {
+        blinds.tell(new Blinds.ToggleCommand());
+    }
+
+    //Todo Sobald das implemntiert ist muss Aircond und temp angepasst werden
+    private void handleBlinds(String[] parts) {
+        blinds.tell(new Blinds.ToggleCommand());
+    }
+
+
+
+    private void handleFridge(String[] parts) {
+        if (parts.length > 1) {
+            switch (parts[1].toLowerCase()) {
+                case "addorder":
+                    if (parts.length < 5) {
+                        System.out.println("Usage: fridge addorder <productName> <quantity> <status>");
+                        break;
+                    }
+
+                    String productName = parts[2];
+                    int quantity;
+                    try {
+                        quantity = Integer.parseInt(parts[3]);
+                    } catch (NumberFormatException e) {
+                        System.out.println("Quantity must be an integer.");
+                        break;
+                    }
+
+                    String status = parts[4];
+                    Order order = new Order(productName, quantity, status);
+
+                    // Da dies außerhalb eines Actors ist: kein Context => null übergeben
+                    fridge.tell(new Fridge.PlaceOrder(order, null));
+
+                    System.out.println("Order placed: " + order);
+                    break;
+
+                default:
+                    System.out.println("Invalid fridge command");
+                    break;
+            }
+        }
+    }
+
+
+
+
+    private MovieState getMovieByName(String name) {
+        for (MovieState movie : MovieState.values()) {
+            if (movie.getName().equalsIgnoreCase(name)) {
+                return movie;
+            }
+        }
+        return null;
     }
 }
