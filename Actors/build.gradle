@@ -28,6 +28,9 @@ dependencies {
     def akkaGrpcVersion = '2.5.5'
     def akkaVersion = '2.10.5'
     def akkaHttpVersion = '10.5.3'
+    //MQT
+    implementation 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
 
     // Akka Core
     implementation "com.typesafe.akka:akka-actor_3:$akkaVersion"

@@ -1,64 +1,92 @@
 package at.fhv.sysarch.lab2.homeautomation.devices;
 
 import akka.actor.typed.Behavior;
-import akka.actor.typed.javadsl.*;
-import at.fhv.sysarch.lab2.homeautomation.devices.Messages.BlindsMessage;
+import akka.actor.typed.PostStop;
+import akka.actor.typed.javadsl.AbstractBehavior;
+import akka.actor.typed.javadsl.ActorContext;
+import akka.actor.typed.javadsl.Behaviors;
+import akka.actor.typed.javadsl.Receive;
+import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-public class Blinds extends AbstractBehavior<BlindsMessage> {
-    private boolean isOpen;
-    private boolean moviePlaying;
+public class Blinds extends AbstractBehavior<Blinds.BlindsCommand> {
+    public interface BlindsCommand {}
 
-    public static Behavior<BlindsMessage> create() {
-        return Behaviors.setup(Blinds::new);
+    public static final class WeatherChanged implements BlindsCommand {
+        final boolean isSunny;
+        public WeatherChanged(boolean isSunny) {
+            this.isSunny = isSunny;
+        }
     }
 
-    private Blinds(ActorContext<BlindsMessage> context) {
+    public static final class MediaStatusChanged implements BlindsCommand {
+        final boolean isPlaying;
+        public MediaStatusChanged(boolean isPlaying) {
+            this.isPlaying = isPlaying;
+        }
+    }
+
+    private boolean isOpen = true;
+    private boolean moviePlaying = false;
+    private final MqttService mqttService;
+
+    public static Behavior<BlindsCommand> create(MqttService mqttService) {
+        return Behaviors.setup(context -> new Blinds(context, mqttService));
+    }
+
+    private Blinds(ActorContext<BlindsCommand> context, MqttService mqttService) {
         super(context);
-        this.isOpen = true;  // Default to open
-        this.moviePlaying = false;
-        context.getLog().info("Blinds actor started");
+        this.mqttService = mqttService;
+
+        // Subscribe to MQTT media updates
+        try {
+            mqttService.subscribe("home/media", (topic, message) -> {
+                ObjectMapper mapper = new ObjectMapper();
+                MediaStatus status = mapper.readValue(message.getPayload(), MediaStatus.class);
+                getContext().getSelf().tell(new MediaStatusChanged(status.isPlaying));
+            });
+        } catch (Exception e) {
+            getContext().getLog().error("Failed to subscribe to MQTT", e);
+        }
+
+        getContext().getLog().info("Blinds started");
     }
 
     @Override
-    public Receive<BlindsMessage> createReceive() {
+    public Receive<BlindsCommand> createReceive() {
         return newReceiveBuilder()
-                .onMessage(BlindsMessage.GetStatus.class, this::onGetStatus)
-                .onMessage(BlindsMessage.SetBlindsPosition.class, this::onSetPosition)
-                .onMessage(BlindsMessage.SetMoviePlaying.class, this::onSetMoviePlaying)
-                .onMessage(BlindsMessage.WeatherUpdate.class, this::onWeatherUpdate)
+                .onMessage(WeatherChanged.class, this::onWeatherChanged)
+                .onMessage(MediaStatusChanged.class, this::onMediaStatusChanged)
+                .onSignal(PostStop.class, signal -> onPostStop())
                 .build();
     }
 
-    private Behavior<BlindsMessage> onGetStatus(BlindsMessage.GetStatus msg) {
-        getContext().getLog().info("Received status request");
-        msg.replyTo.tell(new BlindsMessage.StatusResponse(isOpen, moviePlaying));
-        return this;
-    }
-
-    private Behavior<BlindsMessage> onSetPosition(BlindsMessage.SetBlindsPosition msg) {
-        this.isOpen = msg.shouldOpen;
-        getContext().getLog().info("Blinds {}", isOpen ? "opened" : "closed");
-        return this;
-    }
-
-    private Behavior<BlindsMessage> onSetMoviePlaying(BlindsMessage.SetMoviePlaying msg) {
-        this.moviePlaying = msg.isPlaying;
-        getContext().getLog().info("Movie playing state updated to {}", moviePlaying);
-
-        // Close blinds if movie starts, but don't open if it stops (weather will handle that)
-        if (moviePlaying && isOpen) {
-            getContext().getSelf().tell(new BlindsMessage.SetBlindsPosition(false));
+    private Behavior<BlindsCommand> onWeatherChanged(WeatherChanged w) {
+        if (!moviePlaying) { // Only react to weather if no movie is playing
+            boolean shouldOpen = !w.isSunny;
+            setPosition(shouldOpen);
         }
         return this;
     }
 
-    private Behavior<BlindsMessage> onWeatherUpdate(BlindsMessage.WeatherUpdate msg) {
-        if (!moviePlaying) {  // Only react to weather if no movie is playing
-            boolean shouldOpen = !"sunny".equals(msg.weatherCondition);
-            if (isOpen != shouldOpen) {
-                getContext().getSelf().tell(new BlindsMessage.SetBlindsPosition(shouldOpen));
-            }
-        }
+    private Behavior<BlindsCommand> onMediaStatusChanged(MediaStatusChanged m) {
+        this.moviePlaying = m.isPlaying;
+        setPosition(!moviePlaying); // Close if movie playing, open otherwise
         return this;
+    }
+
+    private void setPosition(boolean open) {
+        this.isOpen = open;
+        getContext().getLog().info("Blinds are now {}", isOpen ? "open" : "closed");
+    }
+
+    private Blinds onPostStop() {
+        getContext().getLog().info("Blinds actor stopped");
+        return this;
+    }
+
+    private static class MediaStatus {
+        public boolean isPlaying;
+        public MediaStatus(boolean playing) { this.isPlaying = playing; }
     }
 }
