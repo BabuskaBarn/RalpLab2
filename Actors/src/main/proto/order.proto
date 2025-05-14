@@ -1,12 +1,19 @@
 syntax = "proto3";
 
-option java_package = "at.fhv.sysarch.lab2.homeautomation.order.proto";
 option java_multiple_files = true;
+option java_package = "at.fhv.sysarch.lab2.proto";
+option java_outer_classname = "OrderProto";
+
+service OrderService {
+  rpc PlaceOrder(OrderRequest) returns (OrderResponse);
+}
 
 message OrderRequest {
   string product = 1;
+  int32 quantity = 2;
 }
 
-message OrderReply {
-  bool successful = 1;
+message OrderResponse {
+  bool success = 1;
+  string message = 2;
 }

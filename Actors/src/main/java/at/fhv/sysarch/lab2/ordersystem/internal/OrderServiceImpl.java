@@ -4,8 +4,11 @@ import akka.actor.typed.Behavior;
 import akka.actor.typed.javadsl.AbstractBehavior;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
+import at.fhv.sysarch.lab2.homeautomation.order.proto.OrderRequest;
+import at.fhv.sysarch.lab2.homeautomation.order.proto.OrderResponse;
+import io.grpc.stub.StreamObserver;
 
-public class OrderServiceImpl {
+public abstract class OrderServiceImpl {
 
 
 
@@ -34,6 +37,8 @@ public class OrderServiceImpl {
                 }
             });
         }
-    }
+
+    public abstract void placeOrder(OrderRequest request, StreamObserver<OrderResponse> responseObserver);
+}
 
 
