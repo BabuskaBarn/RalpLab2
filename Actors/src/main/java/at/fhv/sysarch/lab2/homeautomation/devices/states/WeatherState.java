@@ -1,13 +1,14 @@
 package at.fhv.sysarch.lab2.homeautomation.devices.states;
 
 public enum WeatherState {
-
     SUNNY("sunny"),
-    STORMY("stormy"),
+    STORM("storm"),
     FOGGY("foggy"),
-    CLOUDY("cloudy");
+    CLOUDY("cloudy"),
+    RAIN("rain"),
+    SNOW("snow");
+    private final String weatherState;
 
-    private String weatherState;
     WeatherState(String weatherState) {
         this.weatherState = weatherState;
     }
@@ -15,6 +16,5 @@ public enum WeatherState {
     public String getWeatherState() {
         return weatherState;
     }
-
 }
 

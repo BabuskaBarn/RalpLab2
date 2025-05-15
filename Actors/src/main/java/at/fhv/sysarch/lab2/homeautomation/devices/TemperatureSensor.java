@@ -21,7 +21,8 @@ public class TemperatureSensor extends AbstractBehavior<TemperatureSensor.Temper
     private final ActorRef<AirCondition.AirConditionCommand> airCondition;
     private final ObjectMapper mapper = new ObjectMapper();
     private double currentTemperature = 20.0;
-    private boolean useExternalSource = false;
+    private boolean useExternalSource = true;
+
 
     public static Behavior<TemperatureCommand> create(ActorRef<AirCondition.AirConditionCommand> airCondition) {
         return Behaviors.setup(context -> new TemperatureSensor(context, airCondition));

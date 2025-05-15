@@ -15,7 +15,6 @@ public class MqttSubscriber {
 
     public interface Command {}
 
-    // Eingehende MQTT-Nachricht
     public static class MqttEnvelope implements Command {
         public final String topic;
         public final String payload;
@@ -26,7 +25,6 @@ public class MqttSubscriber {
         }
     }
 
-    // Wrapper-Kommando zur Weiterleitung an WeatherSensor
     public static class ForwardWeatherFromMqtt implements WeatherSensor.WeatherCommand {
         private final WeatherState weatherState;
 
@@ -39,7 +37,6 @@ public class MqttSubscriber {
         }
     }
 
-    // Wrapper-Kommando zur Weiterleitung an TemperatureSensor
     public static class ForwardTemperatureFromMqtt implements TemperatureSensor.TemperatureCommand {
         private final double temperature;
 
@@ -63,19 +60,27 @@ public class MqttSubscriber {
                 MqttClient mqttClient = new MqttClient("tcp://10.0.40.161:1883", MqttClient.generateClientId());
                 MqttConnectOptions options = new MqttConnectOptions();
                 options.setCleanSession(true);
+                options.setConnectionTimeout(5); // 5 Sekunden Timeout
+
                 mqttClient.connect(options);
 
-                mqttClient.subscribe("weather/condition", (topic, msg) -> {
-                    String json = new String(msg.getPayload());
-                    context.getSelf().tell(new MqttEnvelope(topic, json));
-                });
+                if (mqttClient.isConnected()) {
+                    context.getLog().info("MQTT connection successful.");
 
-                mqttClient.subscribe("weather/temperature", (topic, msg) -> {
-                    String json = new String(msg.getPayload());
-                    context.getSelf().tell(new MqttEnvelope(topic, json));
-                });
+                    mqttClient.subscribe("weather/condition", (topic, msg) -> {
+                        String json = new String(msg.getPayload());
+                        context.getSelf().tell(new MqttEnvelope(topic, json));
+                    });
 
-                context.getLog().info("MQTT Subscriber connected and subscribed.");
+                    mqttClient.subscribe("weather/temperature", (topic, msg) -> {
+                        String json = new String(msg.getPayload());
+                        context.getSelf().tell(new MqttEnvelope(topic, json));
+                    });
+
+                    context.getLog().info("MQTT Subscriber subscribed to topics.");
+                } else {
+                    context.getLog().error("MQTT client not connected. Skipping subscriptions.");
+                }
             } catch (Exception e) {
                 context.getLog().error("Fehler beim MQTT-Setup: {}", e.getMessage());
             }
@@ -85,12 +90,18 @@ public class MqttSubscriber {
                         try {
                             if (msg.topic.equals("weather/condition")) {
                                 WeatherConditionMessage condMsg = mapper.readValue(msg.payload, WeatherConditionMessage.class);
-                                WeatherState state = WeatherState.valueOf(condMsg.condition.toUpperCase());
-                                weatherSensor.tell(new ForwardWeatherFromMqtt(state));
+                                try {
+                                    WeatherState state = WeatherState.valueOf(condMsg.condition.toUpperCase());
+                                    weatherSensor.tell(new ForwardWeatherFromMqtt(state));
+                                    context.getLog().info("Weather condition received: {}", state);
+                                } catch (IllegalArgumentException e) {
+                                    context.getLog().warn("Unbekannter WeatherState: {}", condMsg.condition);
+                                }
                             } else if (msg.topic.equals("weather/temperature")) {
                                 TemperatureMessage tempMsg = mapper.readValue(msg.payload, TemperatureMessage.class);
                                 double temp = Double.parseDouble(tempMsg.temperature);
                                 temperatureSensor.tell(new ForwardTemperatureFromMqtt(temp));
+                                context.getLog().info("Temperature received: {}", temp);
                             } else {
                                 context.getLog().warn("Unbekanntes Topic: {}", msg.topic);
                             }

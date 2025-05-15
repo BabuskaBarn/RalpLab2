@@ -28,7 +28,8 @@ public class WeatherSensor extends AbstractBehavior<WeatherSensor.WeatherCommand
 
     private final ActorRef<Blinds.BlindsCommand> blinds;
     private final ObjectMapper mapper = new ObjectMapper();
-    private boolean useExternalSource = false;
+    private boolean useExternalSource = true;
+
     private WeatherState currentWeatherState = WeatherState.SUNNY;
 
     public static Behavior<WeatherCommand> create(ActorRef<Blinds.BlindsCommand> blinds) {

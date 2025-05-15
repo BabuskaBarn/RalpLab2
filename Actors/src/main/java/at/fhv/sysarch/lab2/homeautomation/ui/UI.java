@@ -93,11 +93,15 @@ public class UI extends AbstractBehavior<Void> {
             case "fridge":
                 handleFridge(parts);
                 break;
+            case "source":
+                handleSource(parts);
+                break;
             default:
                 System.out.println("Unknown command.");
                 break;
         }
     }
+
 
     private void handleMedia(String[] parts) {
         if (parts.length > 1) {
@@ -183,8 +187,52 @@ public class UI extends AbstractBehavior<Void> {
                     break;
             }
         }
-    }
 
+
+    }
+    private void handleSource(String[] parts) {
+        if (parts.length != 3) {
+            System.out.println("Usage: source <weather|temp> <mqtt|sim>");
+            return;
+        }
+
+        boolean useExternal;
+        switch (parts[2].toLowerCase()) {
+            case "mqtt":
+                useExternal = true;
+                break;
+            case "sim":
+                useExternal = false;
+                break;
+            default:
+                System.out.println("Invalid source type. Use 'mqtt' or 'sim'.");
+                return;
+        }
+
+        switch (parts[1].toLowerCase()) {
+            case "weather":
+                weather.tell(new WeatherSensor.ToggleSource(useExternal));
+                System.out.println("Weather source set to " + (useExternal ? "MQTT" : "Simulation"));
+                break;
+            case "temp":
+                tempSensor.tell(new TemperatureSensor.ToggleSource(useExternal));
+                System.out.println("Temperature source set to " + (useExternal ? "MQTT" : "Simulation"));
+                break;
+            default:
+                System.out.println("Unknown sensor. Use 'weather' or 'temp'.");
+                break;
+        }
+    }
+    /*Umschalt Commands
+source weather sim
+source temp sim
+
+source weather mqtt
+source temp mqtt
+
+
+
+     */
     private MovieState getMovieByName(String name) {
         for (MovieState movie : MovieState.values()) {
             if (movie.getName().equalsIgnoreCase(name)) {
