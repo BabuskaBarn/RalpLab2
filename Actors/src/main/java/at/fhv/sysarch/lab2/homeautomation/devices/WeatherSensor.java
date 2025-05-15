@@ -12,6 +12,7 @@ public class WeatherSensor extends AbstractBehavior<WeatherSensor.WeatherCommand
 
     public interface WeatherCommand {}
 
+    // Für interne Simulation
     public static final class ReadWeather implements WeatherCommand {
         final boolean isSunny;
         public ReadWeather(boolean isSunny) {
@@ -23,6 +24,14 @@ public class WeatherSensor extends AbstractBehavior<WeatherSensor.WeatherCommand
         public final boolean useExternal;
         public ToggleSource(boolean useExternal) {
             this.useExternal = useExternal;
+        }
+    }
+
+    // Für externe MQTT-Daten (mit String statt Enum)
+    public static final class ExternalWeatherUpdate implements WeatherCommand {
+        public final String condition;
+        public ExternalWeatherUpdate(String condition) {
+            this.condition = condition;
         }
     }
 
@@ -46,21 +55,22 @@ public class WeatherSensor extends AbstractBehavior<WeatherSensor.WeatherCommand
         return newReceiveBuilder()
                 .onMessage(ReadWeather.class, this::onReadWeather)
                 .onMessage(WeatherSimulator.ForwardWeatherCommand.class, this::onSimulatorWeather)
-                .onMessage(MqttSubscriber.ForwardWeatherFromMqtt.class, this::onMqttWeather)
+                .onMessage(ExternalWeatherUpdate.class, this::onExternalWeather)
                 .onMessage(ToggleSource.class, this::onToggleSource)
                 .build();
     }
 
     private Behavior<WeatherCommand> onToggleSource(ToggleSource cmd) {
         useExternalSource = cmd.useExternal;
-        getContext().getLog().info("WeatherSensor toggled to {}", useExternalSource ? "MQTT (external)" : "Simulation (internal)");
+        getContext().getLog().info("WeatherSensor toggled to {}",
+                useExternalSource ? "external source" : "internal simulation");
         return this;
     }
 
     private Behavior<WeatherCommand> onReadWeather(ReadWeather r) {
         if (!useExternalSource) {
             currentWeatherState = r.isSunny ? WeatherState.SUNNY : WeatherState.CLOUDY;
-            getContext().getLog().info("WeatherSensor received internal simulation data: {}", currentWeatherState);
+            getContext().getLog().info("Internal weather update: {}", currentWeatherState);
             notifyBlinds();
         }
         return this;
@@ -69,19 +79,35 @@ public class WeatherSensor extends AbstractBehavior<WeatherSensor.WeatherCommand
     private Behavior<WeatherCommand> onSimulatorWeather(WeatherSimulator.ForwardWeatherCommand command) {
         if (!useExternalSource && command != null) {
             currentWeatherState = command.getWeatherState();
-            getContext().getLog().info("WeatherSensor received simulation weather: {}", currentWeatherState);
+            getContext().getLog().info("Simulator weather update: {}", currentWeatherState);
             notifyBlinds();
         }
         return this;
     }
 
-    private Behavior<WeatherCommand> onMqttWeather(MqttSubscriber.ForwardWeatherFromMqtt command) {
+    private Behavior<WeatherCommand> onExternalWeather(ExternalWeatherUpdate command) {
         if (useExternalSource && command != null) {
-            currentWeatherState = command.getWeatherState();
-            getContext().getLog().info("WeatherSensor received external MQTT weather: {}", currentWeatherState);
+            // Konvertierung des String-Werts in WeatherState mit Fallback
+            try {
+                currentWeatherState = WeatherState.valueOf(command.condition.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                currentWeatherState = mapToWeatherState(command.condition);
+                getContext().getLog().warn("Unknown weather condition '{}', mapped to {}",
+                        command.condition, currentWeatherState);
+            }
+            getContext().getLog().info("External weather update: {}", currentWeatherState);
             notifyBlinds();
         }
         return this;
+    }
+
+    private WeatherState mapToWeatherState(String condition) {
+        return switch (condition.toLowerCase()) {
+            case "rain", "snow", "storm" -> WeatherState.STORMY;
+            case "fog", "mist" -> WeatherState.FOGGY;
+            case "cloudy", "overcast" -> WeatherState.CLOUDY;
+            default -> WeatherState.SUNNY; // Default bei unbekannten Werten
+        };
     }
 
     private void notifyBlinds() {
