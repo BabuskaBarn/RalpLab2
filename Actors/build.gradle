@@ -53,16 +53,7 @@ dependencies {
     // Testing
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.9.2'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.9.2'
-}
-
-
-
-sourceSets {
-    main {
-        proto {
-            srcDir 'src/main/proto'
-        }
-    }
+    
 }
 
 processResources{
@@ -78,4 +69,29 @@ run {
 
 test {
     useJUnitPlatform()
+}
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:3.25.3"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:1.41.0"
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.plugins {
+                grpc {}
+            }
+        }
+    }
+}
+
+sourceSets {
+    main {
+        proto {
+            srcDir 'src/main/proto' // /home/moehre/Dokumente/FHV_IT_SEM4/RalpLab2/Actors/src/main/proto/order.proto
+        }
+    }
 }

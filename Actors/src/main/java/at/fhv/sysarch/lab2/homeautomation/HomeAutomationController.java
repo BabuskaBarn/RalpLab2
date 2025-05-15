@@ -8,8 +8,10 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.*;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.Fridge;
 import at.fhv.sysarch.lab2.homeautomation.devices.MediaStation.MediaStationCommand;
 import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttSubscriber;
+import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessorWithResults;
@@ -22,6 +24,7 @@ public class HomeAutomationController extends AbstractBehavior<Void> {
         return Behaviors.setup(HomeAutomationController::new);
     }
 
+
     private HomeAutomationController(ActorContext<Void> context) {
         super(context);
 
@@ -33,7 +36,7 @@ public class HomeAutomationController extends AbstractBehavior<Void> {
                 context.spawn(OrderProcessorWithResults.create(), "OrderProcessor");
 
         ActorRef<Fridge.FridgeCommand> fridge =
-                context.spawn(Fridge.create(50f, 100, orderProcessor), "Fridge");
+                context.spawn(Fridge.create(), "Fridge");
 
         // Zentrale: Blinds
         ActorRef<Blinds.BlindsCommand> blinds =
