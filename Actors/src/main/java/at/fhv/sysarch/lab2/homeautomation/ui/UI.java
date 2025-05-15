@@ -8,13 +8,15 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.*;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.Fridge;
 import at.fhv.sysarch.lab2.homeautomation.devices.MediaStation.MediaStationCommand;
-import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.FridgeCommand;
 import at.fhv.sysarch.lab2.homeautomation.devices.Messages.Environment;
-import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Order;
-import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Product;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.fridgeComponents.Order;
 import at.fhv.sysarch.lab2.homeautomation.devices.states.MovieState;
 import at.fhv.sysarch.lab2.homeautomation.devices.states.WeatherState;
+import at.fhv.sysarch.lab2.homeautomation.order.proto.OrderRequest;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.fridgeComponents.Product;
+import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.fridgeComponents.Order;
 
 import java.util.*;
 
@@ -26,7 +28,7 @@ public class UI extends AbstractBehavior<Void> {
     private ActorRef<Blinds.BlindsCommand> blinds;
     private ActorRef<TemperatureSensor.TemperatureCommand> tempSensor;
     private ActorRef<WeatherSensor.WeatherCommand> weather;
-    private ActorRef<FridgeCommand> fridge;
+    private ActorRef<Fridge.FridgeCommand> fridge;
 
     public static Behavior<Void> create(ActorRef<MediaStationCommand> mediaStation,
                                         ActorRef<AirCondition.AirConditionCommand> airCondition,
@@ -34,7 +36,7 @@ public class UI extends AbstractBehavior<Void> {
                                         ActorRef<Blinds.BlindsCommand> blinds,
                                         ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
                                         ActorRef<WeatherSensor.WeatherCommand> weather,
-                                        ActorRef<FridgeCommand> fridge) {
+                                        ActorRef<Fridge.FridgeCommand> fridge) {
         return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, environment, blinds, tempSensor, weather, fridge));
     }
 
@@ -44,7 +46,7 @@ public class UI extends AbstractBehavior<Void> {
                ActorRef<Blinds.BlindsCommand> blinds,
                ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
                ActorRef<WeatherSensor.WeatherCommand> weather,
-               ActorRef<FridgeCommand> fridge) {
+               ActorRef<Fridge.FridgeCommand> fridge) {
         super(context);
         this.fridge = fridge;
         this.mediaStation = mediaStation;
@@ -192,43 +194,47 @@ public class UI extends AbstractBehavior<Void> {
     }
 
 
-
     private void handleFridge(String[] parts) {
-        if (parts.length > 1) {
-            switch (parts[1].toLowerCase()) {
-                case "addorder":
-                    if (parts.length < 5) {
-                        System.out.println("Usage: fridge addorder <productName> <quantity> <status>");
-                        break;
-                    }
+        if (parts.length < 2) {
+            System.out.println("Available commands: order <name> <price> <weight>, consume <name>, history");
+            return;
+        }
 
-                    String productName = parts[2];
-                    int quantity;
-                    try {
-                        quantity = Integer.parseInt(parts[3]);
-                    } catch (NumberFormatException e) {
-                        System.out.println("Quantity must be an integer.");
-                        break;
-                    }
+        switch (parts[1].toLowerCase()) {
+            case "order":
+                if (parts.length < 5) {
+                    System.out.println("Usage: fridge order <name> <price> <weight>");
+                    return;
+                }
+                try {
+                    Product product = new Product(
+                            parts[2], // name
+                            Double.parseDouble(parts[3]), // price
+                            Double.parseDouble(parts[4]) // weight
+                    );
+                    fridge.tell(new Fridge.OrderProducts(new Order(List.of(product))));
+                } catch (NumberFormatException e) {
+                    System.out.println("Invalid price/weight format");
+                }
+                break;
 
-                    String status = parts[4];
-                    Order order = new Order(productName, quantity, status);
+            case "consume":
+                if (parts.length < 3) {
+                    System.out.println("Usage: fridge consume <name>");
+                    return;
+                }
+                fridge.tell(new Fridge.RemoveProduct(new Product(parts[2], 0.0, 0.0)));
+                break;
 
-                    // Da dies außerhalb eines Actors ist: kein Context => null übergeben
-                    fridge.tell(new Fridge.PlaceOrder(order, null));
+            case "history":
+                fridge.tell(new Fridge.SimpleHistoryResponse(null));
+                break;
 
-                    System.out.println("Order placed: " + order);
-                    break;
-
-                default:
-                    System.out.println("Invalid fridge command");
-                    break;
-            }
+            default:
+                System.out.println("Unknown fridge command");
+                break;
         }
     }
-
-
-
 
     private MovieState getMovieByName(String name) {
         for (MovieState movie : MovieState.values()) {
