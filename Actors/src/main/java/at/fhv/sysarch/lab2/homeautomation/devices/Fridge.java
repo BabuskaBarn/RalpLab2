@@ -12,6 +12,7 @@ import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Product;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,7 +47,7 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
         public final Order order;
         public final ActorRef<OrderResponse> replyTo;
 
-        public PlaceOrder(Order order , ActorRef<OrderResponse> replyTo) {
+        public PlaceOrder(Order order, ActorRef<OrderResponse> replyTo) {
             this.order = order;
             this.replyTo = replyTo;
         }
@@ -83,14 +84,11 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
     // Internal message for order processor responses
     private static final class OrderCompleted implements FridgeCommand {
         public final OrderProcessor.OrderResponse response;
-        public final String productName;
-        public final int quantity;
+        public final Order order;
 
-        public OrderCompleted(OrderProcessor.OrderResponse response,
-                              String productName, int quantity) {
+        public OrderCompleted(OrderProcessor.OrderResponse response, Order order) {
             this.response = response;
-            this.productName = productName;
-            this.quantity = quantity;
+            this.order = order;
         }
     }
 
@@ -111,8 +109,8 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
         this.maxWeight = maxWeight;
         this.maxCapacity = maxCapacity;
         this.orderProcessor = orderProcessor;
-        this.inventory = new ArrayList<>();
-        this.orderHistory = new ArrayList<>();
+        this.inventory = Collections.synchronizedList(new ArrayList<>());
+        this.orderHistory = Collections.synchronizedList(new ArrayList<>());
 
         // Initialize with some products
         inventory.add(new Product("Milk", 2, 1.0f, 1.5f));
@@ -137,67 +135,75 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
     private Behavior<FridgeCommand> handleConsume(ConsumeProduct cmd) {
         Optional<Product> product = findProduct(cmd.productName);
 
-        if (product.isPresent()) {
-            Product p = product.get();
-            p.setQuantity(p.getQuantity() - 1);
+        if (!product.isPresent()) {
+            cmd.replyTo.tell(new OrderFailed("Product not found"));
+            return this;
+        }
 
+        Product p = product.get();
+        synchronized (p) {
+            if (p.getQuantity() <= 0) {
+                cmd.replyTo.tell(new OrderFailed("Product out of stock"));
+                return this;
+            }
+
+            p.setQuantity(p.getQuantity() - 1);
             getContext().getLog().info("Consumed 1 {}. Remaining: {}", p.getName(), p.getQuantity());
             cmd.replyTo.tell(new OrderSuccess("Consumed successfully"));
 
-            if (p.getQuantity() <= 0) {
+            if (p.getQuantity() <= 2) { // Reorder threshold
                 ActorRef<OrderResponse> adapter = getContext().messageAdapter(
                         OrderResponse.class,
                         IgnoreResponse::new
                 );
-
-                getContext().getSelf().tell(
-                        new PlaceOrder(p.getName(), 5, adapter)
-                );
+                Order newOrder = new Order(p.getName(), 5, "Pending");
+                getContext().getSelf().tell(new PlaceOrder(newOrder, adapter));
                 getContext().getLog().info("Triggered auto-reorder for {}", p.getName());
             }
-        } else {
-            cmd.replyTo.tell(new OrderFailed("Product not found"));
         }
         return this;
     }
 
     private Behavior<FridgeCommand> handlePlaceOrder(PlaceOrder cmd) {
-        if (calculateTotalItems() + cmd.quantity > maxCapacity) {
-            if (cmd.replyTo != null) {
+        Order order = cmd.order;
+
+        synchronized (inventory) {
+            if (calculateTotalItems() + order.getQuantity() > maxCapacity) {
                 cmd.replyTo.tell(new OrderFailed("Exceeds fridge capacity"));
+                return this;
             }
-            return this;
-        }
 
-        if (calculateTotalWeight() + (cmd.quantity * 0.5f) > maxWeight) {
-            if (cmd.replyTo != null) {
+            if (calculateTotalWeight() + (order.getQuantity() * 0.5f) > maxWeight) {
                 cmd.replyTo.tell(new OrderFailed("Exceeds weight limit"));
+                return this;
             }
-            return this;
+
+            orderProcessor.tell(new OrderProcessor.ProcessOrder(
+                    order.getProductName(),
+                    order.getQuantity(),
+                    getContext().messageAdapter(
+                            OrderProcessor.OrderResponse.class,
+                            response -> new OrderCompleted(response, order)
+                    )
+            ));
+
+            orderHistory.add(new Order(order.getProductName(), order.getQuantity(), "Processing"));
+            getContext().getLog().info("Order placed: {} x {}", order.getQuantity(), order.getProductName());
         }
-
-        orderProcessor.tell(new OrderProcessor.ProcessOrder(
-                cmd.productName,
-                cmd.quantity,
-                getContext().messageAdapter(
-                        OrderProcessor.OrderResponse.class,
-                        response -> new OrderCompleted(response, cmd.productName, cmd.quantity)
-                )
-        ));
-
-        orderHistory.add(new Order(cmd.productName, cmd.quantity, "Processing"));
         return this;
     }
 
     private Behavior<FridgeCommand> handleOrderCompleted(OrderCompleted cmd) {
+        Order order = cmd.order;
+
         if (cmd.response instanceof OrderProcessor.OrderSuccess) {
             OrderProcessor.OrderSuccess success = (OrderProcessor.OrderSuccess) cmd.response;
-            updateInventory(cmd.productName, cmd.quantity);
-            updateOrderHistory(cmd.productName, cmd.quantity, "Completed");
+            updateInventory(order.getProductName(), order.getQuantity());
+            updateOrderHistory(order, "Completed");
             getContext().getLog().info("Order completed: {}", success.details);
         } else if (cmd.response instanceof OrderProcessor.OrderFailed) {
             OrderProcessor.OrderFailed failed = (OrderProcessor.OrderFailed) cmd.response;
-            updateOrderHistory(cmd.productName, cmd.quantity, "Failed: " + failed.reason);
+            updateOrderHistory(order, "Failed: " + failed.reason);
             getContext().getLog().warn("Order failed: {}", failed.reason);
         }
         return this;
@@ -215,42 +221,55 @@ public class Fridge extends AbstractBehavior<Fridge.FridgeCommand> {
     }
 
     private Behavior<FridgeCommand> handleGetInventory(GetInventory cmd) {
-        cmd.replyTo.tell(new InventoryResponse(inventory, orderHistory));
+        cmd.replyTo.tell(new InventoryResponse(
+                new ArrayList<>(inventory),
+                new ArrayList<>(orderHistory)
+        ));
         return this;
     }
 
     private Optional<Product> findProduct(String name) {
-        return inventory.stream()
-                .filter(p -> p.getName().equals(name))
-                .findFirst();
+        synchronized (inventory) {
+            return inventory.stream()
+                    .filter(p -> p.getName().equals(name))
+                    .findFirst();
+        }
     }
 
     private void updateInventory(String productName, int quantity) {
-        findProduct(productName).ifPresentOrElse(
-                p -> p.setQuantity(p.getQuantity() + quantity),
-                () -> inventory.add(new Product(productName, quantity, 0.5f, 1.0f))
-        );
+        synchronized (inventory) {
+            findProduct(productName).ifPresentOrElse(
+                    p -> p.setQuantity(p.getQuantity() + quantity),
+                    () -> inventory.add(new Product(productName, quantity, 0.5f, 1.0f))
+            );
+        }
     }
 
-    private void updateOrderHistory(String productName, int quantity, String status) {
-        orderHistory.removeIf(o ->
-                o.getProductName().equals(productName) &&
-                        o.getQuantity() == quantity &&
-                        o.getStatus().equals("Processing")
-        );
-        orderHistory.add(new Order(productName, quantity, status));
+    private void updateOrderHistory(Order order, String status) {
+        synchronized (orderHistory) {
+            orderHistory.removeIf(o ->
+                    o.getProductName().equals(order.getProductName()) &&
+                            o.getQuantity() == order.getQuantity() &&
+                            o.getStatus().equals("Processing")
+            );
+            orderHistory.add(new Order(order.getProductName(), order.getQuantity(), status));
+        }
     }
 
     private float calculateTotalWeight() {
-        return (float) inventory.stream()
-                .mapToDouble(p -> p.getWeight() * p.getQuantity())
-                .sum();
+        synchronized (inventory) {
+            return (float) inventory.stream()
+                    .mapToDouble(p -> p.getWeight() * p.getQuantity())
+                    .sum();
+        }
     }
 
     private int calculateTotalItems() {
-        return inventory.stream()
-                .mapToInt(Product::getQuantity)
-                .sum();
+        synchronized (inventory) {
+            return inventory.stream()
+                    .mapToInt(Product::getQuantity)
+                    .sum();
+        }
     }
 
     private Behavior<FridgeCommand> onPostStop() {
