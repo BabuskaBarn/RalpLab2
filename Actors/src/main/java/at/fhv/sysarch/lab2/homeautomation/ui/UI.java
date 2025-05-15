@@ -10,19 +10,15 @@ import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.*;
 import at.fhv.sysarch.lab2.homeautomation.devices.MediaStation.MediaStationCommand;
 import at.fhv.sysarch.lab2.homeautomation.devices.Fridge.FridgeCommand;
-import at.fhv.sysarch.lab2.homeautomation.devices.Messages.Environment;
 import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Order;
-import at.fhv.sysarch.lab2.homeautomation.devices.fridgeComponents.Product;
 import at.fhv.sysarch.lab2.homeautomation.devices.states.MovieState;
-import at.fhv.sysarch.lab2.homeautomation.devices.states.WeatherState;
 
-import java.util.*;
+import java.util.Scanner;
 
 public class UI extends AbstractBehavior<Void> {
 
     private ActorRef<AirCondition.AirConditionCommand> airCondition;
     private ActorRef<MediaStationCommand> mediaStation;
-    private ActorRef<Environment.EnvironmentCommand> environment;
     private ActorRef<Blinds.BlindsCommand> blinds;
     private ActorRef<TemperatureSensor.TemperatureCommand> tempSensor;
     private ActorRef<WeatherSensor.WeatherCommand> weather;
@@ -30,17 +26,16 @@ public class UI extends AbstractBehavior<Void> {
 
     public static Behavior<Void> create(ActorRef<MediaStationCommand> mediaStation,
                                         ActorRef<AirCondition.AirConditionCommand> airCondition,
-                                        ActorRef<Environment.EnvironmentCommand> environment,
                                         ActorRef<Blinds.BlindsCommand> blinds,
                                         ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
                                         ActorRef<WeatherSensor.WeatherCommand> weather,
                                         ActorRef<FridgeCommand> fridge) {
-        return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, environment, blinds, tempSensor, weather, fridge));
+        return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, blinds, tempSensor, weather, fridge));
     }
 
-    private UI(ActorContext<Void> context, ActorRef<MediaStationCommand> mediaStation,
+    private UI(ActorContext<Void> context,
+               ActorRef<MediaStationCommand> mediaStation,
                ActorRef<AirCondition.AirConditionCommand> airCondition,
-               ActorRef<Environment.EnvironmentCommand> environment,
                ActorRef<Blinds.BlindsCommand> blinds,
                ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
                ActorRef<WeatherSensor.WeatherCommand> weather,
@@ -48,7 +43,6 @@ public class UI extends AbstractBehavior<Void> {
         super(context);
         this.fridge = fridge;
         this.mediaStation = mediaStation;
-        this.environment = environment;
         this.blinds = blinds;
         this.tempSensor = tempSensor;
         this.weather = weather;
@@ -72,7 +66,7 @@ public class UI extends AbstractBehavior<Void> {
         Scanner scanner = new Scanner(System.in);
         String reader;
         System.out.println("Type 'exit' to quit.");
-        System.out.println("Available commands: environment, media, blinds, aircondition, fridge");
+        System.out.println("Available commands: media, blinds, aircondition, fridge");
         while (scanner.hasNextLine()) {
             reader = scanner.nextLine();
             if (reader.equalsIgnoreCase("exit")) {
@@ -87,17 +81,14 @@ public class UI extends AbstractBehavior<Void> {
     private void handleCommand(String command) {
         String[] parts = command.split(" ");
         switch (parts[0].toLowerCase()) {
-            case "environment":
-                handleEnvironment(parts);
-                break;
             case "media":
                 handleMedia(parts);
                 break;
             case "blinds":
-                handleBlinds();
+                handleBlinds(parts);
                 break;
             case "aircondition":
-                handleAirCondition();
+                handleAirCondition(parts);
                 break;
             case "fridge":
                 handleFridge(parts);
@@ -108,48 +99,6 @@ public class UI extends AbstractBehavior<Void> {
         }
     }
 
-    private void handleEnvironment(String[] parts) {
-        if (parts.length > 1) {
-            switch (parts[1].toLowerCase()) {
-                case "sett":
-                    // Setzt die Temperatur
-                    try {
-                        double temp = Double.parseDouble(parts[2]);
-                        environment.tell(new Environment.SetTemperature(temp));
-                    } catch (NumberFormatException e) {
-                        System.out.println("Invalid temperature value. Please provide a valid number.");
-                    }
-                    break;
-
-                case "setw":
-                    // Setzt den Wetterzustand
-                    if (parts.length > 2) {
-                        try {
-                            WeatherState weatherState = WeatherState.valueOf(parts[2].toUpperCase());
-                            environment.tell(new Environment.SetWeather(weatherState));
-                        } catch (IllegalArgumentException e) {
-                            System.out.println("Invalid weather state. Valid values are: sunny, stormy, foggy, cloudy.");
-                        }
-                    } else {
-                        System.out.println("Please provide a weather state. Valid values are: sunny, stormy, foggy, cloudy.");
-                    }
-                    break;
-
-                case "gett":
-                    // Hier kann die Temperatur abgerufen werden, falls gewünscht
-                    System.out.println("Getting the current temperature (implement this logic)");
-                    break;
-
-                default:
-                    System.out.println("Unknown environment command.");
-                    break;
-            }
-        } else {
-            System.out.println("Invalid command. Please provide an action.");
-        }
-    }
-
-
     private void handleMedia(String[] parts) {
         if (parts.length > 1) {
             switch (parts[1].toLowerCase()) {
@@ -159,7 +108,6 @@ public class UI extends AbstractBehavior<Void> {
                         break;
                     }
                     String movieName = parts[2];
-                    // Assuming we have a method to create MovieState by name
                     MovieState movieToPlay = getMovieByName(movieName);
                     if (movieToPlay != null) {
                         mediaStation.tell(new MediaStation.PlayMovie(movieToPlay));
@@ -182,16 +130,29 @@ public class UI extends AbstractBehavior<Void> {
         }
     }
 
-    private void handleBlinds() {
-        blinds.tell(new Blinds.ToggleCommand());
-    }
-
-    //Todo Sobald das implemntiert ist muss Aircond und temp angepasst werden
     private void handleBlinds(String[] parts) {
         blinds.tell(new Blinds.ToggleCommand());
     }
 
-
+    private void handleAirCondition(String[] parts) {
+        if (parts.length == 2) {
+            switch (parts[1].toLowerCase()) {
+                case "on":
+                    airCondition.tell(new AirCondition.PowerAirCondition(true));
+                    System.out.println("Manually turned ON the air conditioner.");
+                    break;
+                case "off":
+                    airCondition.tell(new AirCondition.PowerAirCondition(false));
+                    System.out.println("Manually turned OFF the air conditioner.");
+                    break;
+                default:
+                    System.out.println("Unknown aircondition command. Use 'aircondition on' or 'aircondition off'.");
+                    break;
+            }
+        } else {
+            System.out.println("Usage: aircondition <on|off>");
+        }
+    }
 
     private void handleFridge(String[] parts) {
         if (parts.length > 1) {
@@ -213,10 +174,7 @@ public class UI extends AbstractBehavior<Void> {
 
                     String status = parts[4];
                     Order order = new Order(productName, quantity, status);
-
-                    // Da dies außerhalb eines Actors ist: kein Context => null übergeben
                     fridge.tell(new Fridge.PlaceOrder(order, null));
-
                     System.out.println("Order placed: " + order);
                     break;
 
@@ -226,9 +184,6 @@ public class UI extends AbstractBehavior<Void> {
             }
         }
     }
-
-
-
 
     private MovieState getMovieByName(String name) {
         for (MovieState movie : MovieState.values()) {

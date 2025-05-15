@@ -2,92 +2,71 @@ package at.fhv.sysarch.lab2.homeautomation.devices;
 
 import akka.actor.typed.ActorRef;
 import akka.actor.typed.Behavior;
-import akka.actor.typed.PostStop;
-import akka.actor.typed.javadsl.AbstractBehavior;
-import akka.actor.typed.javadsl.ActorContext;
-import akka.actor.typed.javadsl.Behaviors;
-import akka.actor.typed.javadsl.Receive;
-import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttService;
+import akka.actor.typed.javadsl.*;
+import at.fhv.sysarch.lab2.homeautomation.devices.simulators.TemperatureSimulator;
+import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttSubscriber;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class TemperatureSensor extends AbstractBehavior<TemperatureSensor.TemperatureCommand> {
+
     public interface TemperatureCommand {}
 
-    public static final class ReadTemperature implements TemperatureCommand {
-        final Double value;
-        public ReadTemperature(Double value) {
-            this.value = value;
+    public static final class ToggleSource implements TemperatureCommand {
+        public final boolean useExternal;
+        public ToggleSource(boolean useExternal) {
+            this.useExternal = useExternal;
         }
     }
 
     private final ActorRef<AirCondition.AirConditionCommand> airCondition;
-    private final MqttService mqttService;
     private final ObjectMapper mapper = new ObjectMapper();
+    private double currentTemperature = 20.0;
+    private boolean useExternalSource = false;
 
-    public static Behavior<TemperatureCommand> create(
-            ActorRef<AirCondition.AirConditionCommand> airCondition,
-            MqttService mqttService) {
-        return Behaviors.setup(context -> new TemperatureSensor(context, airCondition, mqttService));
+    public static Behavior<TemperatureCommand> create(ActorRef<AirCondition.AirConditionCommand> airCondition) {
+        return Behaviors.setup(context -> new TemperatureSensor(context, airCondition));
     }
 
-    private TemperatureSensor(
-            ActorContext<TemperatureCommand> context,
-            ActorRef<AirCondition.AirConditionCommand> airCondition,
-            MqttService mqttService) {
+    private TemperatureSensor(ActorContext<TemperatureCommand> context, ActorRef<AirCondition.AirConditionCommand> airCondition) {
         super(context);
         this.airCondition = airCondition;
-        this.mqttService = mqttService;
-
-        // Start temperature simulation
-        simulateTemperatureChanges();
-
         getContext().getLog().info("TemperatureSensor started");
-    }
-
-    private void simulateTemperatureChanges() {
-        getContext().getSystem().scheduler().scheduleAtFixedRate(
-                java.time.Duration.ofSeconds(1),
-                java.time.Duration.ofSeconds(5),
-                () -> {
-                    double temp = 15 + Math.random() * 15; // 15-30°C
-                    getContext().getSelf().tell(new ReadTemperature(temp));
-                },
-                getContext().getSystem().executionContext()
-        );
     }
 
     @Override
     public Receive<TemperatureCommand> createReceive() {
         return newReceiveBuilder()
-                .onMessage(ReadTemperature.class, this::onReadTemperature)
-                .onSignal(PostStop.class, signal -> onPostStop())
+                .onMessage(TemperatureSimulator.ForwardTemperatureCommand.class, this::onSimulatorTemperature)
+                .onMessage(MqttSubscriber.ForwardTemperatureFromMqtt.class, this::onMqttTemperature)
+                .onMessage(ToggleSource.class, this::onToggleSource)
                 .build();
     }
 
-    private Behavior<TemperatureCommand> onReadTemperature(ReadTemperature r) {
-        getContext().getLog().info("TemperatureSensor received {}", r.value);
+    private Behavior<TemperatureCommand> onToggleSource(ToggleSource cmd) {
+        useExternalSource = cmd.useExternal;
+        getContext().getLog().info("TemperatureSensor toggled to {}", useExternalSource ? "MQTT (external)" : "Simulation (internal)");
+        return this;
+    }
 
-        // Send to AirCondition via Akka
-        this.airCondition.tell(new AirCondition.EnrichedTemperature(r.value, "Celsius"));
-
-        // Publish via MQTT
-        try {
-            mqttService.publish("home/temperature",
-                    mapper.writeValueAsString(new TempReading(r.value)));
-        } catch (Exception e) {
-            getContext().getLog().error("Failed to publish temperature", e);
+    private Behavior<TemperatureCommand> onSimulatorTemperature(TemperatureSimulator.ForwardTemperatureCommand cmd) {
+        if (!useExternalSource) {
+            currentTemperature = cmd.getTemperature();
+            getContext().getLog().info("TemperatureSensor received simulation temperature: {} °C", currentTemperature);
+            notifyAirCondition();
         }
-
         return this;
     }
 
-    private TemperatureSensor onPostStop() {
-        getContext().getLog().info("TemperatureSensor actor stopped");
+    private Behavior<TemperatureCommand> onMqttTemperature(MqttSubscriber.ForwardTemperatureFromMqtt cmd) {
+        if (useExternalSource) {
+            currentTemperature = cmd.getTemperature();
+            getContext().getLog().info("TemperatureSensor received MQTT temperature: {} °C", currentTemperature);
+            notifyAirCondition();
+        }
         return this;
     }
 
-    private static class TempReading {
-        public double temperature;
-        public TempReading(double temp) { this.temperature = temp; }
+    private void notifyAirCondition() {
+        this.airCondition.tell(new AirCondition.EnrichedTemperature(currentTemperature, "Celsius"));
     }
 }

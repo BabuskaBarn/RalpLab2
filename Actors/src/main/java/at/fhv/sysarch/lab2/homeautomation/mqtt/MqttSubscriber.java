@@ -3,9 +3,9 @@ package at.fhv.sysarch.lab2.homeautomation.mqtt;
 import akka.actor.typed.Behavior;
 import akka.actor.typed.ActorRef;
 import akka.actor.typed.javadsl.*;
-import at.fhv.sysarch.lab2.homeautomation.devices.Messages.Environment.SetTemperature;
 import at.fhv.sysarch.lab2.homeautomation.devices.Messages.TemperatureMessage;
 import at.fhv.sysarch.lab2.homeautomation.devices.Messages.WeatherConditionMessage;
+import at.fhv.sysarch.lab2.homeautomation.devices.TemperatureSensor;
 import at.fhv.sysarch.lab2.homeautomation.devices.WeatherSensor;
 import at.fhv.sysarch.lab2.homeautomation.devices.states.WeatherState;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,10 +39,24 @@ public class MqttSubscriber {
         }
     }
 
-    public static Behavior<Command> create(ActorRef<WeatherSensor.WeatherCommand> weatherSensor,
-                                           ActorRef<SetTemperature> temperatureSensor) {
-        return Behaviors.setup(context -> {
+    // Wrapper-Kommando zur Weiterleitung an TemperatureSensor
+    public static class ForwardTemperatureFromMqtt implements TemperatureSensor.TemperatureCommand {
+        private final double temperature;
 
+        public ForwardTemperatureFromMqtt(double temperature) {
+            this.temperature = temperature;
+        }
+
+        public double getTemperature() {
+            return temperature;
+        }
+    }
+
+    public static Behavior<Command> create(
+            ActorRef<WeatherSensor.WeatherCommand> weatherSensor,
+            ActorRef<TemperatureSensor.TemperatureCommand> temperatureSensor) {
+
+        return Behaviors.setup(context -> {
             ObjectMapper mapper = new ObjectMapper();
 
             try {
@@ -62,7 +76,6 @@ public class MqttSubscriber {
                 });
 
                 context.getLog().info("MQTT Subscriber connected and subscribed.");
-
             } catch (Exception e) {
                 context.getLog().error("Fehler beim MQTT-Setup: {}", e.getMessage());
             }
@@ -77,7 +90,7 @@ public class MqttSubscriber {
                             } else if (msg.topic.equals("weather/temperature")) {
                                 TemperatureMessage tempMsg = mapper.readValue(msg.payload, TemperatureMessage.class);
                                 double temp = Double.parseDouble(tempMsg.temperature);
-                                temperatureSensor.tell(new SetTemperature(temp));
+                                temperatureSensor.tell(new ForwardTemperatureFromMqtt(temp));
                             } else {
                                 context.getLog().warn("Unbekanntes Topic: {}", msg.topic);
                             }

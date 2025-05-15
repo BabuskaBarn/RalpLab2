@@ -8,19 +8,19 @@ import akka.actor.typed.javadsl.ActorContext;
 import akka.actor.typed.javadsl.Behaviors;
 import akka.actor.typed.javadsl.Receive;
 import at.fhv.sysarch.lab2.homeautomation.devices.*;
+import at.fhv.sysarch.lab2.homeautomation.devices.MediaStation.MediaStationCommand;
 import at.fhv.sysarch.lab2.homeautomation.mqtt.MqttSubscriber;
-import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.homeautomation.ui.UI;
+import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessor;
 import at.fhv.sysarch.lab2.ordersystem.internal.OrderProcessorWithResults;
 
 import java.util.UUID;
 
-public class HomeAutomationController extends AbstractBehavior<Void>{
+public class HomeAutomationController extends AbstractBehavior<Void> {
 
     public static Behavior<Void> create() {
         return Behaviors.setup(HomeAutomationController::new);
     }
-
 
     private HomeAutomationController(ActorContext<Void> context) {
         super(context);
@@ -50,21 +50,27 @@ public class HomeAutomationController extends AbstractBehavior<Void>{
         context.spawn(MqttSubscriber.create(weatherSensor, tempSensor), "MqttSubscriber");
 
         // Media Station: sendet MediaStatus an Blinds
-        ActorRef<MediaStation.MediaStationCommand> mediaStation =
+        ActorRef<MediaStationCommand> mediaStation =
                 context.spawn(MediaStation.create(blinds), "MediaStation");
 
         // UI (muss auch Media & Weather simulieren können)
         ActorRef<Void> ui =
-                context.spawn(UI.create(tempSensor, airCondition, fridge, orderProcessor, weatherSensor, mediaStation), "UI");
+                context.spawn(UI.create(
+                        mediaStation,
+                        airCondition,
+                        blinds,
+                        tempSensor,
+                        weatherSensor,
+                        fridge), "UI");
 
         context.getLog().info("HomeAutomation Application started");
     }
 
-
-
     @Override
     public Receive<Void> createReceive() {
-        return newReceiveBuilder().onSignal(PostStop.class, signal -> onPostStop()).build();
+        return newReceiveBuilder()
+                .onSignal(PostStop.class, signal -> onPostStop())
+                .build();
     }
 
     private HomeAutomationController onPostStop() {
