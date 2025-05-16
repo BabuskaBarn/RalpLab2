@@ -35,7 +35,7 @@ public class UI extends AbstractBehavior<Void> {
                                         ActorRef<TemperatureSensor.TemperatureCommand> tempSensor,
                                         ActorRef<WeatherSensor.WeatherCommand> weather,
                                         ActorRef<Fridge.FridgeCommand> fridge) {
-        return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, environment, blinds, tempSensor, weather, fridge));
+        return Behaviors.setup(context -> new UI(context, mediaStation, airCondition, blinds, tempSensor, weather, fridge));
     }
 
     private UI(ActorContext<Void> context,
